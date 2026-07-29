@@ -15,7 +15,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from tefas_client import TefasFetchError, compute_returns, fetch_fund_prices, fund_detail_url
+from tefas_client import (
+    TefasFetchError,
+    compute_returns,
+    fetch_fund_prices,
+    fetch_fund_sizes,
+    fund_detail_url,
+)
 
 FUND_CODES = [
     "PKZ", "TLY", "DFI", "LTL", "TP2", "PRY", "PHE",
@@ -43,6 +49,21 @@ def load_prices(code: str) -> pd.DataFrame:
     return fetch_fund_prices(code, months_back=12)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_sizes(codes: tuple) -> dict:
+    return fetch_fund_sizes(codes)
+
+
+def fmt_size(x):
+    if x is None or pd.isna(x):
+        return "—"
+    if x >= 1e9:
+        return f"{x / 1e9:,.2f} Milyar TL"
+    if x >= 1e6:
+        return f"{x / 1e6:,.2f} Milyon TL"
+    return f"{x:,.0f} TL"
+
+
 def pct(x):
     if x is None or pd.isna(x):
         return "—"
@@ -62,24 +83,22 @@ st.caption(
 )
 
 with st.sidebar:
-    st.header("Filtre")
-    selected = st.multiselect("Fonlar", FUND_CODES, default=FUND_CODES)
     if st.button("Veriyi yenile (önbelleği temizle)"):
         load_prices.clear()
+        load_sizes.clear()
         st.rerun()
     st.markdown("---")
     st.caption(
         "**Not:** TEFAS 2026'da eski toplu API'sini (BindHistoryInfo / "
-        "BindHistoryAllocation) kapattı. Yeni API sadece günlük fiyat verisi "
-        "sunuyor; geçmiş fon büyüklüğü, yatırımcı sayısı ve varlık dağılımı "
-        "verileri artık herkese açık bir uç noktadan alınamıyor. Bu yüzden "
-        "para giriş/çıkışı ve varlık dağılımı bölümleri, ilgili fonun resmi "
-        "TEFAS sayfasına yönlendirme olarak gösteriliyor."
+        "BindHistoryAllocation) kapattı. Geçmiş para giriş/çıkışı ve varlık "
+        "dağılımı verileri artık herkese açık bir uç noktadan alınamıyor. Bu "
+        "yüzden ilgili bölümler, her fonun resmi TEFAS sayfasına yönlendirme "
+        "olarak gösteriliyor. Büyüklük sütunu, TEFAS'ın anlık karşılaştırma "
+        "verisinden en iyi çaba (best-effort) ile okunuyor."
     )
 
-if not selected:
-    st.info("Soldan en az bir fon seçin.")
-    st.stop()
+selected = FUND_CODES
+sizes = load_sizes(tuple(selected))
 
 rows = []
 histories = {}
@@ -99,7 +118,7 @@ with st.spinner("TEFAS'tan fiyat verisi alınıyor..."):
                 "Kod": code,
                 "Fon Adı": title or "—",
                 "Son Fiyat": r["last_price"],
-                "Son Veri Tarihi": r["last_date"],
+                "Büyüklük": sizes.get(code),
                 "Günlük": r["daily_return"],
                 "Haftalık": r["weekly_return"],
                 "YTD": r["ytd_return"],
@@ -121,6 +140,7 @@ summary = pd.DataFrame(rows)
 st.subheader("Getiri Özeti")
 display_df = summary.copy()
 display_df["Son Fiyat"] = display_df["Son Fiyat"].map(lambda x: f"{x:.6f}" if pd.notna(x) else "—")
+display_df["Büyüklük"] = summary["Büyüklük"].map(fmt_size)
 for col in ["Günlük", "Haftalık", "YTD"]:
     display_df[col] = summary[col].map(pct)
 
@@ -134,67 +154,39 @@ st.dataframe(
 )
 
 
-def returns_bar_chart(metric_col: str, title: str) -> go.Figure:
-    data = summary.dropna(subset=[metric_col]).sort_values(metric_col)
+if not sizes:
+    st.caption(
+        "Büyüklük verisi şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür."
+    )
+
+st.subheader("Fiyat Geçmişi (son 12 ay)")
+chosen_code = st.selectbox("Fon seçin", selected, index=0)
+chosen_df = histories.get(chosen_code)
+
+if chosen_df is None or chosen_df.empty:
+    st.info(f"{chosen_code} için fiyat geçmişi bulunamadı.")
+else:
     fig = go.Figure(
-        go.Bar(
-            x=data[metric_col] * 100,
-            y=data["Kod"],
-            orientation="h",
-            marker_color=[POSITIVE if v >= 0 else NEGATIVE for v in data[metric_col]],
-            text=[f"{v * 100:+.2f}%" for v in data[metric_col]],
-            textposition="outside",
-            hovertemplate="%{y}: %{x:.2f}%<extra></extra>",
+        go.Scatter(
+            x=chosen_df["date"],
+            y=chosen_df["price"],
+            mode="lines",
+            name=chosen_code,
+            line=dict(color=COLOR_MAP.get(chosen_code, "#4C78A8"), width=2),
+            hovertemplate="%{x}: %{y:.6f}<extra></extra>",
         )
     )
     fig.update_layout(
-        title=title,
-        xaxis_title="Getiri (%)",
-        yaxis_title=None,
-        height=max(280, 32 * len(data) + 100),
+        title=f"{chosen_code} — Fiyat",
+        yaxis_title="Fiyat (TL)",
+        xaxis_title=None,
+        height=450,
         margin=dict(l=10, r=10, t=50, b=10),
-        showlegend=False,
         plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
     )
-    fig.update_xaxes(zeroline=True, zerolinewidth=1, zerolinecolor=NEUTRAL_TEXT, gridcolor="rgba(128,128,128,0.15)")
-    return fig
-
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.plotly_chart(returns_bar_chart("Günlük", "Günlük Getiri"), use_container_width=True)
-with col2:
-    st.plotly_chart(returns_bar_chart("Haftalık", "Haftalık Getiri"), use_container_width=True)
-with col3:
-    st.plotly_chart(returns_bar_chart("YTD", "Yıl Başından Bugüne (YTD) Getiri"), use_container_width=True)
-
-st.subheader("Fiyat Geçmişi (son 12 ay)")
-fig = go.Figure()
-for code in selected:
-    df = histories.get(code)
-    if df is None or df.empty:
-        continue
-    indexed = df["price"] / df["price"].iloc[0] * 100
-    fig.add_trace(
-        go.Scatter(
-            x=df["date"],
-            y=indexed,
-            mode="lines",
-            name=code,
-            line=dict(color=COLOR_MAP.get(code), width=2),
-            hovertemplate=f"{code}" + " %{x}: %{y:.2f}<extra></extra>",
-        )
-    )
-fig.update_layout(
-    yaxis_title="Endeks (başlangıç = 100)",
-    xaxis_title=None,
-    height=450,
-    margin=dict(l=10, r=10, t=20, b=10),
-    plot_bgcolor="rgba(0,0,0,0)",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-)
-fig.update_yaxes(gridcolor="rgba(128,128,128,0.15)")
-st.plotly_chart(fig, use_container_width=True)
+    fig.update_yaxes(gridcolor="rgba(128,128,128,0.15)")
+    st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
 st.subheader("Para Giriş / Çıkışı")

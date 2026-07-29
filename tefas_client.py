@@ -17,6 +17,7 @@ import requests
 
 ROOT_URL = "https://www.tefas.gov.tr"
 PRICE_ENDPOINT = "/api/funds/fonFiyatBilgiGetir"
+LIST_ENDPOINT = "/api/funds/fonGetiriBazliBilgiGetir"
 
 HEADERS = {
     "User-Agent": (
@@ -92,6 +93,70 @@ def fetch_fund_prices(code: str, months_back: int = 12, timeout: int = 20) -> pd
         return df
     df = df.sort_values("date").drop_duplicates(subset="date").reset_index(drop=True)
     return df
+
+
+def _find_size_value(row: dict):
+    """Best-effort lookup of a fund-size field in a raw API row.
+
+    The comparison-table endpoint's exact field names aren't confirmed, so
+    this scans for any numeric key whose name suggests fund size/AUM
+    (Turkish: buyukluk/deger) rather than hard-coding one guessed key.
+    """
+    for key, value in row.items():
+        lk = key.lower()
+        if isinstance(value, (int, float)) and ("buyuk" in lk or "deger" in lk):
+            return float(value)
+    return None
+
+
+def fetch_fund_sizes(codes, kind: str = "YAT", timeout: int = 20) -> dict:
+    """Best-effort current fund-size (AUM) snapshot, keyed by fund code.
+
+    Uses the comparison-table endpoint TEFAS's own fund list page relies on.
+    Returns an empty dict if the endpoint or field layout doesn't match
+    (call site should treat missing codes as "unknown", not an error).
+    """
+    wanted = {c.upper() for c in codes}
+    payload = {
+        "dil": "TR",
+        "fonTipi": kind,
+        "kurucuKodu": None,
+        "sfonTurKod": None,
+        "fonTurAciklama": None,
+        "islem": 1,
+        "fonTurKod": None,
+        "fonGrubu": None,
+        "donemGetiri1a": "1",
+        "donemGetiri3a": "1",
+        "donemGetiri6a": "1",
+        "donemGetiri1y": "1",
+        "donemGetiriyb": "1",
+        "donemGetiri3y": "1",
+        "donemGetiri5y": "1",
+        "basTarih": None,
+        "bitTarih": None,
+        "calismaTipi": 2,
+        "getiriOrani": "1",
+    }
+    try:
+        resp = requests.post(
+            f"{ROOT_URL}{LIST_ENDPOINT}", json=payload, headers=HEADERS, timeout=timeout
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    except (requests.RequestException, ValueError):
+        return {}
+
+    rows = body.get("resultList") or []
+    sizes = {}
+    for row in rows:
+        code = row.get("fonKodu")
+        if not code or code.upper() not in wanted:
+            continue
+        size = _find_size_value(row)
+        if size is not None:
+            sizes[code.upper()] = size
+    return sizes
 
 
 class TefasFetchError(RuntimeError):
