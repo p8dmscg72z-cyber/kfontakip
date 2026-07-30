@@ -115,13 +115,7 @@ def fmt_size(x):
 def fmt_flow(x):
     if x is None or pd.isna(x):
         return "—"
-    sign = "+" if x >= 0 else "-"
-    ax = abs(x)
-    if ax >= 1e9:
-        return f"{sign}{ax / 1e9:,.2f} Milyar TL"
-    if ax >= 1e6:
-        return f"{sign}{ax / 1e6:,.2f} Milyon TL"
-    return f"{sign}{ax:,.0f} TL"
+    return f"{x:+,.0f}"
 
 
 def color_for(x):
