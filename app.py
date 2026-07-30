@@ -41,9 +41,12 @@ st.set_page_config(page_title="TEFAS Fon Takip Paneli", layout="wide")
 
 st.markdown(
     """
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
     html, body, [class*="css"] {
-        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        font-family: "Noto Sans", "notoSans Fallback", Arial, sans-serif;
     }
     h1 { font-size: 1.9rem !important; }
     h3 { font-size: 1.25rem !important; }
