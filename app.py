@@ -196,21 +196,26 @@ if not rows:
 summary = pd.DataFrame(rows)
 
 st.subheader("Getiri Özeti")
-display_df = summary.copy()
-display_df["Son Fiyat"] = display_df["Son Fiyat"].map(lambda x: f"{x:.6f}" if pd.notna(x) else "—")
-display_df["Büyüklük"] = summary["Büyüklük"].map(fmt_size)
-for col in ["Günlük", "Haftalık", "YTD"]:
-    display_df[col] = summary[col].map(pct)
-
 colored_cols = ["Günlük", "Haftalık", "YTD"]
+styled_summary = summary.style.format(
+    {
+        "Son Fiyat": lambda x: f"{x:.6f}" if pd.notna(x) else "—",
+        "Büyüklük": fmt_size,
+        "Günlük": pct,
+        "Haftalık": pct,
+        "YTD": pct,
+    }
+).apply(
+    lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
+    axis=0,
+)
+# Keep the underlying numbers (not the formatted text) so clicking a column
+# header sorts by value, not alphabetically.
 st.dataframe(
-    display_df.style.apply(
-        lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
-        axis=0,
-    ),
+    styled_summary,
     hide_index=True,
     use_container_width=True,
-    height=table_height(len(display_df)),
+    height=table_height(len(summary)),
 )
 st.caption(
     "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir (TL). YTD sütunu "
@@ -251,19 +256,18 @@ if st.session_state.show_flows:
             }
         )
     flow_df = pd.DataFrame(flow_rows)
-    flow_display = flow_df.copy()
     flow_cols = ["Günlük", "Haftalık", "Aylık", "YTD"]
-    for col in flow_cols:
-        flow_display[col] = flow_df[col].map(fmt_flow)
-
+    styled_flows = flow_df.style.format({col: fmt_flow for col in flow_cols}).apply(
+        lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
+        axis=0,
+    )
+    # Keep the underlying numbers (not the formatted text) so clicking a
+    # column header sorts by value, not alphabetically.
     st.dataframe(
-        flow_display.style.apply(
-            lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
-            axis=0,
-        ),
+        styled_flows,
         hide_index=True,
         use_container_width=True,
-        height=table_height(len(flow_display)),
+        height=table_height(len(flow_df)),
     )
     if flow_df[flow_cols].isna().all(axis=None):
         st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
