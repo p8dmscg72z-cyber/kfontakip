@@ -95,18 +95,7 @@ def fetch_fund_prices(code: str, months_back: int = 12, timeout: int = 20) -> pd
     return df
 
 
-def _find_size_value(row: dict):
-    """Best-effort lookup of a fund-size field in a raw API row.
-
-    The comparison-table endpoint's exact field names aren't confirmed, so
-    this scans for any numeric key whose name suggests fund size/AUM
-    (Turkish: buyukluk/deger) rather than hard-coding one guessed key.
-    """
-    for key, value in row.items():
-        lk = key.lower()
-        if isinstance(value, (int, float)) and ("buyuk" in lk or "deger" in lk):
-            return float(value)
-    return None
+FUND_KINDS = ("YAT", "EMK", "BYF")
 
 
 def _fetch_list_rows(kind: str = "YAT", timeout: int = 20) -> list:
@@ -147,35 +136,39 @@ def _fetch_list_rows(kind: str = "YAT", timeout: int = 20) -> list:
     return body.get("resultList") or []
 
 
-def fetch_fund_sizes(codes, kind: str = "YAT", timeout: int = 20) -> dict:
-    """Best-effort current fund-size (AUM) snapshot, keyed by fund code.
+def fetch_comparison_data(codes, timeout: int = 20) -> dict:
+    """TEFAS's own official period returns for the given fund codes.
 
-    Uses the comparison-table endpoint TEFAS's own fund list page relies on.
-    Returns an empty dict if the endpoint or field layout doesn't match
-    (call site should treat missing codes as "unknown", not an error).
+    Confirmed available fields (from a live sample of this endpoint):
+    fonUnvan, fonTurAciklama, riskDegeri, and period returns getiri1a/3a/6a/1y,
+    getiriyb (year-to-date), getiri3y/5y — all as percentages, e.g. 11.03
+    means +11.03%. No AUM/size field is present on this endpoint.
+
+    Searches across all three fund kinds (YAT/EMK/BYF) since a given code
+    may not be a "YAT" fund. Returns {} entries only for codes actually found.
     """
     wanted = {c.upper() for c in codes}
-    rows = _fetch_list_rows(kind, timeout)
-    sizes = {}
-    for row in rows:
-        code = row.get("fonKodu")
-        if not code or code.upper() not in wanted:
-            continue
-        size = _find_size_value(row)
-        if size is not None:
-            sizes[code.upper()] = size
-    return sizes
-
-
-def fetch_raw_rows_for_debug(codes, kind: str = "YAT", timeout: int = 20) -> list:
-    """Unfiltered raw rows (all fields, untouched) for the given codes.
-
-    For diagnosing the comparison-table endpoint's real field names when
-    the heuristic in _find_size_value doesn't match anything.
-    """
-    wanted = {c.upper() for c in codes}
-    rows = _fetch_list_rows(kind, timeout)
-    return [r for r in rows if (r.get("fonKodu") or "").upper() in wanted]
+    found = {}
+    for kind in FUND_KINDS:
+        if len(found) == len(wanted):
+            break
+        rows = _fetch_list_rows(kind, timeout)
+        for row in rows:
+            code = (row.get("fonKodu") or "").upper()
+            if code in wanted and code not in found:
+                found[code] = {
+                    "title": row.get("fonUnvan"),
+                    "fund_type": row.get("fonTurAciklama"),
+                    "risk": row.get("riskDegeri"),
+                    "r_1a": row.get("getiri1a"),
+                    "r_3a": row.get("getiri3a"),
+                    "r_6a": row.get("getiri6a"),
+                    "r_1y": row.get("getiri1y"),
+                    "r_ytd": row.get("getiriyb"),
+                    "r_3y": row.get("getiri3y"),
+                    "r_5y": row.get("getiri5y"),
+                }
+    return found
 
 
 class TefasFetchError(RuntimeError):

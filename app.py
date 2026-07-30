@@ -1,10 +1,12 @@
 """TEFAS Fon Takip Paneli.
 
-Streamlit dashboard for a fixed watchlist of TEFAS funds: shows daily / weekly /
-YTD returns computed from the public TEFAS price API. TEFAS retired its old
-bulk API in 2026; the current API no longer publishes historical AUM /
-investor-count / asset-allocation data, so those two sections show a notice
-with a link to each fund's TEFAS page instead of fabricated numbers.
+Streamlit dashboard for a fixed watchlist of TEFAS funds: daily/weekly returns
+computed from the public price API, plus YTD/1A/3A/6A/1Y returns straight from
+TEFAS's own comparison-table endpoint. TEFAS retired its old bulk API in 2026;
+the current API no longer publishes historical AUM/investor-count/
+asset-allocation data at all (confirmed via a live sample of the comparison
+endpoint), so those sections show a notice with a link to each fund's TEFAS
+page instead of fabricated numbers.
 """
 
 from __future__ import annotations
@@ -19,9 +21,8 @@ import streamlit as st
 from tefas_client import (
     TefasFetchError,
     compute_returns,
+    fetch_comparison_data,
     fetch_fund_prices,
-    fetch_fund_sizes,
-    fetch_raw_rows_for_debug,
     fund_detail_url,
 )
 
@@ -54,13 +55,8 @@ def load_prices(code: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
-def load_sizes(codes: tuple) -> dict:
-    return fetch_fund_sizes(codes)
-
-
-@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
-def load_raw_debug_rows(codes: tuple) -> list:
-    return fetch_raw_rows_for_debug(codes)
+def load_comparison(codes: tuple) -> dict:
+    return fetch_comparison_data(codes)
 
 
 def load_all_prices(codes: list) -> dict:
@@ -80,20 +76,18 @@ def load_all_prices(codes: list) -> dict:
     return results, errs
 
 
-def fmt_size(x):
-    if x is None or pd.isna(x):
-        return "—"
-    if x >= 1e9:
-        return f"{x / 1e9:,.2f} Milyar TL"
-    if x >= 1e6:
-        return f"{x / 1e6:,.2f} Milyon TL"
-    return f"{x:,.0f} TL"
-
-
 def pct(x):
+    """Format a fraction (0.05 -> +5.00%)."""
     if x is None or pd.isna(x):
         return "—"
     return f"{x * 100:+.2f}%"
+
+
+def pct_already(x):
+    """Format a value that's already a percentage (11.03 -> +11.03%)."""
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x:+.2f}%"
 
 
 def color_for(x):
@@ -104,46 +98,52 @@ def color_for(x):
 
 st.title("TEFAS Fon Takip Paneli")
 st.caption(
-    "Günlük, haftalık ve yıl başından bugüne (YTD) getiriler; TEFAS'ın güncel "
-    "fon fiyatı API'sinden hesaplanır."
+    "Günlük ve haftalık getiriler fiyat geçmişinden hesaplanır; YTD ve diğer "
+    "dönemsel getiriler TEFAS'ın kendi resmi karşılaştırma verisidir."
 )
 
 with st.sidebar:
     if st.button("Veriyi yenile (önbelleği temizle)"):
         load_prices.clear()
-        load_sizes.clear()
+        load_comparison.clear()
         st.rerun()
     st.markdown("---")
     st.caption(
         "**Not:** TEFAS 2026'da eski toplu API'sini (BindHistoryInfo / "
-        "BindHistoryAllocation) kapattı. Geçmiş para giriş/çıkışı ve varlık "
-        "dağılımı verileri artık herkese açık bir uç noktadan alınamıyor. Bu "
-        "yüzden ilgili bölümler, her fonun resmi TEFAS sayfasına yönlendirme "
-        "olarak gösteriliyor. Büyüklük sütunu, TEFAS'ın anlık karşılaştırma "
-        "verisinden en iyi çaba (best-effort) ile okunuyor."
+        "BindHistoryAllocation) kapattı. Geçmiş fon büyüklüğü/para giriş-çıkışı "
+        "ve varlık dağılımı verileri artık herkese açık bir uç noktadan "
+        "alınamıyor — bu yüzden ilgili bölüm her fonun resmi TEFAS sayfasına "
+        "yönlendirme olarak gösteriliyor."
     )
 
 selected = FUND_CODES
-sizes = load_sizes(tuple(selected))
+comparison = load_comparison(tuple(selected))
 
 rows = []
-with st.spinner("TEFAS'tan fiyat verisi alınıyor..."):
+with st.spinner("TEFAS'tan veri alınıyor..."):
     histories, errors = load_all_prices(selected)
 
 for code in selected:
     df = histories.get(code)
+    comp = comparison.get(code, {})
     if df is not None:
         r = compute_returns(df)
-        title = df.iloc[-1]["title"] if not df.empty else None
+        title = (df.iloc[-1]["title"] if not df.empty else None) or comp.get("title")
+        ytd = comp.get("r_ytd")
+        ytd_fraction = ytd / 100 if ytd is not None else r["ytd_return"]
         rows.append(
             {
                 "Kod": code,
                 "Fon Adı": title or "—",
                 "Son Fiyat": r["last_price"],
-                "Büyüklük": sizes.get(code),
                 "Günlük": r["daily_return"],
                 "Haftalık": r["weekly_return"],
-                "YTD": r["ytd_return"],
+                "YTD": ytd_fraction,
+                "1 Ay": comp.get("r_1a"),
+                "3 Ay": comp.get("r_3a"),
+                "6 Ay": comp.get("r_6a"),
+                "1 Yıl": comp.get("r_1y"),
+                "Risk": comp.get("risk"),
             }
         )
 
@@ -162,35 +162,25 @@ summary = pd.DataFrame(rows)
 st.subheader("Getiri Özeti")
 display_df = summary.copy()
 display_df["Son Fiyat"] = display_df["Son Fiyat"].map(lambda x: f"{x:.6f}" if pd.notna(x) else "—")
-display_df["Büyüklük"] = summary["Büyüklük"].map(fmt_size)
 for col in ["Günlük", "Haftalık", "YTD"]:
     display_df[col] = summary[col].map(pct)
+for col in ["1 Ay", "3 Ay", "6 Ay", "1 Yıl"]:
+    display_df[col] = summary[col].map(pct_already)
+display_df["Risk"] = summary["Risk"].map(lambda x: x if x else "—")
 
+colored_cols = ["Günlük", "Haftalık", "YTD", "1 Ay", "3 Ay", "6 Ay", "1 Yıl"]
 st.dataframe(
     display_df.style.apply(
-        lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in ("Günlük", "Haftalık", "YTD") else [""] * len(s),
+        lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
         axis=0,
     ),
     hide_index=True,
     use_container_width=True,
 )
-
-
-if not sizes:
-    st.caption(
-        "Büyüklük verisi şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür."
-    )
-    with st.expander("Teşhis: ham TEFAS verisini göster (geliştirme amaçlı)"):
-        st.caption(
-            "Bu bölüm, büyüklük sütununun neden boş geldiğini tespit etmek "
-            "içindir. Aşağıdaki ham veriyi kopyalayıp paylaşırsan doğru alan "
-            "adını bulup düzeltebiliriz."
-        )
-        debug_rows = load_raw_debug_rows(tuple(selected))
-        if debug_rows:
-            st.json(debug_rows)
-        else:
-            st.write("Karşılaştırma uç noktasından hiç veri dönmedi.")
+st.caption(
+    "YTD, 1 Ay, 3 Ay, 6 Ay ve 1 Yıl sütunları TEFAS'ın kendi resmi getiri "
+    "hesaplamasıdır. Günlük ve Haftalık, fiyat geçmişinden ayrıca hesaplanır."
+)
 
 st.subheader("Fiyat Geçmişi (son 12 ay)")
 chosen_code = st.selectbox("Fon seçin", selected, index=0)
