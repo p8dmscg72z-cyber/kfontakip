@@ -9,6 +9,7 @@ with a link to each fund's TEFAS page instead of fabricated numbers.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
 import pandas as pd
@@ -20,8 +21,11 @@ from tefas_client import (
     compute_returns,
     fetch_fund_prices,
     fetch_fund_sizes,
+    fetch_raw_rows_for_debug,
     fund_detail_url,
 )
+
+CACHE_TTL_SECONDS = 6 * 3600  # TEFAS prices update a few times a day, not every minute
 
 FUND_CODES = [
     "PKZ", "TLY", "DFI", "LTL", "TP2", "PRY", "PHE",
@@ -44,14 +48,36 @@ NEUTRAL_TEXT = "#6B7280"
 st.set_page_config(page_title="TEFAS Fon Takip Paneli", layout="wide")
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def load_prices(code: str) -> pd.DataFrame:
     return fetch_fund_prices(code, months_back=12)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def load_sizes(codes: tuple) -> dict:
     return fetch_fund_sizes(codes)
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def load_raw_debug_rows(codes: tuple) -> list:
+    return fetch_raw_rows_for_debug(codes)
+
+
+def load_all_prices(codes: list) -> dict:
+    """Fetch all fund price histories concurrently (each result is itself
+    cached individually by load_prices, so a warm cache still returns fast).
+    """
+    results = {}
+    errs = []
+    with ThreadPoolExecutor(max_workers=min(8, len(codes))) as executor:
+        future_to_code = {executor.submit(load_prices, code): code for code in codes}
+        for future in as_completed(future_to_code):
+            code = future_to_code[future]
+            try:
+                results[code] = future.result()
+            except TefasFetchError as exc:
+                errs.append(exc)
+    return results, errs
 
 
 def fmt_size(x):
@@ -101,16 +127,12 @@ selected = FUND_CODES
 sizes = load_sizes(tuple(selected))
 
 rows = []
-histories = {}
-errors = []
 with st.spinner("TEFAS'tan fiyat verisi alınıyor..."):
-    for code in selected:
-        try:
-            df = load_prices(code)
-        except TefasFetchError as exc:
-            errors.append(exc)
-            continue
-        histories[code] = df
+    histories, errors = load_all_prices(selected)
+
+for code in selected:
+    df = histories.get(code)
+    if df is not None:
         r = compute_returns(df)
         title = df.iloc[-1]["title"] if not df.empty else None
         rows.append(
@@ -158,6 +180,17 @@ if not sizes:
     st.caption(
         "Büyüklük verisi şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür."
     )
+    with st.expander("Teşhis: ham TEFAS verisini göster (geliştirme amaçlı)"):
+        st.caption(
+            "Bu bölüm, büyüklük sütununun neden boş geldiğini tespit etmek "
+            "içindir. Aşağıdaki ham veriyi kopyalayıp paylaşırsan doğru alan "
+            "adını bulup düzeltebiliriz."
+        )
+        debug_rows = load_raw_debug_rows(tuple(selected))
+        if debug_rows:
+            st.json(debug_rows[:2])
+        else:
+            st.write("Karşılaştırma uç noktasından hiç veri dönmedi.")
 
 st.subheader("Fiyat Geçmişi (son 12 ay)")
 chosen_code = st.selectbox("Fon seçin", selected, index=0)

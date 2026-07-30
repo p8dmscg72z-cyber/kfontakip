@@ -109,14 +109,12 @@ def _find_size_value(row: dict):
     return None
 
 
-def fetch_fund_sizes(codes, kind: str = "YAT", timeout: int = 20) -> dict:
-    """Best-effort current fund-size (AUM) snapshot, keyed by fund code.
+def _fetch_list_rows(kind: str = "YAT", timeout: int = 20) -> list:
+    """Raw rows from the comparison-table endpoint, one dict per fund.
 
-    Uses the comparison-table endpoint TEFAS's own fund list page relies on.
-    Returns an empty dict if the endpoint or field layout doesn't match
-    (call site should treat missing codes as "unknown", not an error).
+    Returns [] on any failure. Kept separate from fetch_fund_sizes so a
+    debug view can inspect the untouched field names/values.
     """
-    wanted = {c.upper() for c in codes}
     payload = {
         "dil": "TR",
         "fonTipi": kind,
@@ -145,9 +143,19 @@ def fetch_fund_sizes(codes, kind: str = "YAT", timeout: int = 20) -> dict:
         resp.raise_for_status()
         body = resp.json()
     except (requests.RequestException, ValueError):
-        return {}
+        return []
+    return body.get("resultList") or []
 
-    rows = body.get("resultList") or []
+
+def fetch_fund_sizes(codes, kind: str = "YAT", timeout: int = 20) -> dict:
+    """Best-effort current fund-size (AUM) snapshot, keyed by fund code.
+
+    Uses the comparison-table endpoint TEFAS's own fund list page relies on.
+    Returns an empty dict if the endpoint or field layout doesn't match
+    (call site should treat missing codes as "unknown", not an error).
+    """
+    wanted = {c.upper() for c in codes}
+    rows = _fetch_list_rows(kind, timeout)
     sizes = {}
     for row in rows:
         code = row.get("fonKodu")
@@ -157,6 +165,17 @@ def fetch_fund_sizes(codes, kind: str = "YAT", timeout: int = 20) -> dict:
         if size is not None:
             sizes[code.upper()] = size
     return sizes
+
+
+def fetch_raw_rows_for_debug(codes, kind: str = "YAT", timeout: int = 20) -> list:
+    """Unfiltered raw rows (all fields, untouched) for the given codes.
+
+    For diagnosing the comparison-table endpoint's real field names when
+    the heuristic in _find_size_value doesn't match anything.
+    """
+    wanted = {c.upper() for c in codes}
+    rows = _fetch_list_rows(kind, timeout)
+    return [r for r in rows if (r.get("fonKodu") or "").upper() in wanted]
 
 
 class TefasFetchError(RuntimeError):
