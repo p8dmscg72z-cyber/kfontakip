@@ -1,12 +1,11 @@
 """TEFAS Fon Takip Paneli.
 
-Streamlit dashboard for a fixed watchlist of TEFAS funds: daily/weekly returns
-computed from the public price API, plus YTD/1A/3A/6A/1Y returns straight from
-TEFAS's own comparison-table endpoint. TEFAS retired its old bulk API in 2026;
-the current API no longer publishes historical AUM/investor-count/
-asset-allocation data at all (confirmed via a live sample of the comparison
-endpoint), so those sections show a notice with a link to each fund's TEFAS
-page instead of fabricated numbers.
+Streamlit dashboard for a fixed watchlist of TEFAS funds: daily/weekly/YTD
+returns and current fund size (Büyüklük), plus an estimated net cash-flow
+table computed on demand. TEFAS retired its old bulk API in 2026; the
+current API no longer publishes historical asset-allocation data at all, so
+that section shows a notice with a link to each fund's TEFAS page instead
+of fabricated numbers.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from tefas_client import (
@@ -34,15 +32,6 @@ FUND_CODES = [
     "PKZ", "TLY", "DFI", "LTL", "TP2", "PRY", "PHE",
     "MT2", "PBR", "PUK", "PCS", "VPS", "IIE",
 ]
-
-# Fixed categorical order — never re-sorted by value, so a fund keeps its
-# color across reruns and filters.
-FUND_COLORS = [
-    "#4C78A8", "#F58518", "#54A24B", "#B279A2", "#E45756",
-    "#72B7B2", "#EECA3B", "#9D755D", "#BAB0AC", "#FF9DA6",
-    "#9C755F", "#5254A3", "#8CA252",
-]
-COLOR_MAP = dict(zip(FUND_CODES, FUND_COLORS))
 
 POSITIVE = "#2CA858"
 NEGATIVE = "#D6455D"
@@ -95,21 +84,10 @@ def pct(x):
     return f"{x * 100:+.2f}%"
 
 
-def pct_already(x):
-    """Format a value that's already a percentage (11.03 -> +11.03%)."""
-    if x is None or pd.isna(x):
-        return "—"
-    return f"{x:+.2f}%"
-
-
 def fmt_size(x):
     if x is None or pd.isna(x):
         return "—"
-    if x >= 1e9:
-        return f"{x / 1e9:,.2f} Milyar TL"
-    if x >= 1e6:
-        return f"{x / 1e6:,.2f} Milyon TL"
-    return f"{x:,.0f} TL"
+    return f"{x:,.0f}"
 
 
 def fmt_flow(x):
@@ -132,8 +110,8 @@ def color_for(x):
 
 st.title("TEFAS Fon Takip Paneli")
 st.caption(
-    "Günlük ve haftalık getiriler fiyat geçmişinden hesaplanır; YTD ve diğer "
-    "dönemsel getiriler TEFAS'ın kendi resmi karşılaştırma verisidir."
+    "Günlük ve haftalık getiriler fiyat geçmişinden hesaplanır; YTD "
+    "TEFAS'ın kendi resmi karşılaştırma verisidir."
 )
 
 with st.sidebar:
@@ -180,11 +158,6 @@ for code in selected:
                 "Günlük": r["daily_return"],
                 "Haftalık": r["weekly_return"],
                 "YTD": ytd_fraction,
-                "1 Ay": comp.get("r_1a"),
-                "3 Ay": comp.get("r_3a"),
-                "6 Ay": comp.get("r_6a"),
-                "1 Yıl": comp.get("r_1y"),
-                "Risk": comp.get("risk"),
             }
         )
 
@@ -206,11 +179,8 @@ display_df["Son Fiyat"] = display_df["Son Fiyat"].map(lambda x: f"{x:.6f}" if pd
 display_df["Büyüklük"] = summary["Büyüklük"].map(fmt_size)
 for col in ["Günlük", "Haftalık", "YTD"]:
     display_df[col] = summary[col].map(pct)
-for col in ["1 Ay", "3 Ay", "6 Ay", "1 Yıl"]:
-    display_df[col] = summary[col].map(pct_already)
-display_df["Risk"] = summary["Risk"].map(lambda x: x if x else "—")
 
-colored_cols = ["Günlük", "Haftalık", "YTD", "1 Ay", "3 Ay", "6 Ay", "1 Yıl"]
+colored_cols = ["Günlük", "Haftalık", "YTD"]
 st.dataframe(
     display_df.style.apply(
         lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
@@ -220,81 +190,59 @@ st.dataframe(
     use_container_width=True,
 )
 st.caption(
-    "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir. YTD, 1 Ay, 3 Ay, "
-    "6 Ay ve 1 Yıl sütunları TEFAS'ın kendi resmi getiri hesaplamasıdır. "
-    "Günlük ve Haftalık, fiyat geçmişinden ayrıca hesaplanır."
+    "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir (TL). YTD sütunu "
+    "TEFAS'ın kendi resmi getiri hesaplamasıdır. Günlük ve Haftalık, fiyat "
+    "geçmişinden ayrıca hesaplanır."
 )
 if not sizes:
     st.caption("Büyüklük verisi şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
-
-st.subheader("Fiyat Geçmişi (son 12 ay)")
-chosen_code = st.selectbox("Fon seçin", selected, index=0)
-chosen_df = histories.get(chosen_code)
-
-if chosen_df is None or chosen_df.empty:
-    st.info(f"{chosen_code} için fiyat geçmişi bulunamadı.")
-else:
-    fig = go.Figure(
-        go.Scatter(
-            x=chosen_df["date"],
-            y=chosen_df["price"],
-            mode="lines",
-            name=chosen_code,
-            line=dict(color=COLOR_MAP.get(chosen_code, "#4C78A8"), width=2),
-            hovertemplate="%{x}: %{y:.6f}<extra></extra>",
-        )
-    )
-    fig.update_layout(
-        title=f"{chosen_code} — Fiyat",
-        yaxis_title="Fiyat (TL)",
-        xaxis_title=None,
-        height=450,
-        margin=dict(l=10, r=10, t=50, b=10),
-        plot_bgcolor="rgba(0,0,0,0)",
-        showlegend=False,
-    )
-    fig.update_yaxes(gridcolor="rgba(128,128,128,0.15)")
-    st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
 st.subheader("Para Giriş / Çıkışı (tahmini)")
 st.caption(
     "TEFAS para giriş/çıkışını doğrudan yayınlamıyor. Aşağıdaki rakamlar, "
     "fon büyüklüğündeki değişimden fiyat getirisinin payı çıkarılarak "
-    "hesaplanan bir **tahmindir** — resmi TEFAS verisi değildir."
+    "hesaplanan bir **tahmindir** — resmi TEFAS verisi değildir. Bu hesap "
+    "TEFAS'a ek istekler attığı için otomatik yüklenmez."
 )
 
-with st.spinner("Para giriş/çıkışı hesaplanıyor..."):
-    flows = load_cash_flows(tuple(selected))
+if "show_flows" not in st.session_state:
+    st.session_state.show_flows = False
+if st.button("Para giriş/çıkışını hesapla"):
+    st.session_state.show_flows = True
 
-flow_rows = []
-for code in selected:
-    f = flows.get(code, {})
-    flow_rows.append(
-        {
-            "Kod": code,
-            "Günlük": f.get("flow_daily"),
-            "Haftalık": f.get("flow_weekly"),
-            "Aylık": f.get("flow_monthly"),
-            "YTD": f.get("flow_ytd"),
-        }
+if st.session_state.show_flows:
+    with st.spinner("Para giriş/çıkışı hesaplanıyor..."):
+        flows = load_cash_flows(tuple(selected))
+
+    flow_rows = []
+    for code in selected:
+        f = flows.get(code, {})
+        flow_rows.append(
+            {
+                "Kod": code,
+                "Günlük": f.get("flow_daily"),
+                "Haftalık": f.get("flow_weekly"),
+                "Aylık": f.get("flow_monthly"),
+                "YTD": f.get("flow_ytd"),
+            }
+        )
+    flow_df = pd.DataFrame(flow_rows)
+    flow_display = flow_df.copy()
+    flow_cols = ["Günlük", "Haftalık", "Aylık", "YTD"]
+    for col in flow_cols:
+        flow_display[col] = flow_df[col].map(fmt_flow)
+
+    st.dataframe(
+        flow_display.style.apply(
+            lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
+            axis=0,
+        ),
+        hide_index=True,
+        use_container_width=True,
     )
-flow_df = pd.DataFrame(flow_rows)
-flow_display = flow_df.copy()
-flow_cols = ["Günlük", "Haftalık", "Aylık", "YTD"]
-for col in flow_cols:
-    flow_display[col] = flow_df[col].map(fmt_flow)
-
-st.dataframe(
-    flow_display.style.apply(
-        lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
-        axis=0,
-    ),
-    hide_index=True,
-    use_container_width=True,
-)
-if flow_df[flow_cols].isna().all(axis=None):
-    st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
+    if flow_df[flow_cols].isna().all(axis=None):
+        st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
 
 st.subheader("Varlık Dağılımı")
 st.info(
