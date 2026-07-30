@@ -39,6 +39,25 @@ NEUTRAL_TEXT = "#6B7280"
 
 st.set_page_config(page_title="TEFAS Fon Takip Paneli", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    html, body, [class*="css"] {
+        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    }
+    h1 { font-size: 1.9rem !important; }
+    h3 { font-size: 1.25rem !important; }
+    p, li, .stMarkdown, .stCaption { font-size: 0.95rem !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def table_height(n_rows: int) -> int:
+    """Enough px height to show every row without an inner scrollbar."""
+    return 38 + 35 * n_rows + 3
+
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def load_prices(code: str) -> pd.DataFrame:
@@ -188,6 +207,7 @@ st.dataframe(
     ),
     hide_index=True,
     use_container_width=True,
+    height=table_height(len(display_df)),
 )
 st.caption(
     "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir (TL). YTD sütunu "
@@ -240,6 +260,7 @@ if st.session_state.show_flows:
         ),
         hide_index=True,
         use_container_width=True,
+        height=table_height(len(flow_display)),
     )
     if flow_df[flow_cols].isna().all(axis=None):
         st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
