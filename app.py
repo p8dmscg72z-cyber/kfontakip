@@ -188,7 +188,7 @@ if not sizes:
         )
         debug_rows = load_raw_debug_rows(tuple(selected))
         if debug_rows:
-            st.json(debug_rows[:2])
+            st.json(debug_rows)
         else:
             st.write("Karşılaştırma uç noktasından hiç veri dönmedi.")
 
