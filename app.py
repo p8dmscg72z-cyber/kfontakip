@@ -23,6 +23,7 @@ from tefas_client import (
     compute_returns,
     fetch_comparison_data,
     fetch_fund_prices,
+    fetch_fund_sizes,
     fund_detail_url,
 )
 
@@ -59,6 +60,11 @@ def load_comparison(codes: tuple) -> dict:
     return fetch_comparison_data(codes)
 
 
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def load_sizes(codes: tuple) -> dict:
+    return fetch_fund_sizes(codes)
+
+
 def load_all_prices(codes: list) -> dict:
     """Fetch all fund price histories concurrently (each result is itself
     cached individually by load_prices, so a warm cache still returns fast).
@@ -90,6 +96,16 @@ def pct_already(x):
     return f"{x:+.2f}%"
 
 
+def fmt_size(x):
+    if x is None or pd.isna(x):
+        return "—"
+    if x >= 1e9:
+        return f"{x / 1e9:,.2f} Milyar TL"
+    if x >= 1e6:
+        return f"{x / 1e6:,.2f} Milyon TL"
+    return f"{x:,.0f} TL"
+
+
 def color_for(x):
     if x is None or pd.isna(x):
         return NEUTRAL_TEXT
@@ -106,18 +122,21 @@ with st.sidebar:
     if st.button("Veriyi yenile (önbelleği temizle)"):
         load_prices.clear()
         load_comparison.clear()
+        load_sizes.clear()
         st.rerun()
     st.markdown("---")
     st.caption(
         "**Not:** TEFAS 2026'da eski toplu API'sini (BindHistoryInfo / "
-        "BindHistoryAllocation) kapattı. Geçmiş fon büyüklüğü/para giriş-çıkışı "
-        "ve varlık dağılımı verileri artık herkese açık bir uç noktadan "
-        "alınamıyor — bu yüzden ilgili bölüm her fonun resmi TEFAS sayfasına "
-        "yönlendirme olarak gösteriliyor."
+        "BindHistoryAllocation) kapattı. Geçmiş para giriş/çıkışı ve varlık "
+        "dağılımı verileri artık herkese açık bir uç noktadan alınamıyor — bu "
+        "yüzden ilgili bölüm her fonun resmi TEFAS sayfasına yönlendirme "
+        "olarak gösteriliyor. Büyüklük, TEFAS'ın kendi güncel karşılaştırma "
+        "verisinden (Fon Toplam Değer) alınır."
     )
 
 selected = FUND_CODES
 comparison = load_comparison(tuple(selected))
+sizes = load_sizes(tuple(selected))
 
 rows = []
 with st.spinner("TEFAS'tan veri alınıyor..."):
@@ -126,6 +145,7 @@ with st.spinner("TEFAS'tan veri alınıyor..."):
 for code in selected:
     df = histories.get(code)
     comp = comparison.get(code, {})
+    size_info = sizes.get(code, {})
     if df is not None:
         r = compute_returns(df)
         title = (df.iloc[-1]["title"] if not df.empty else None) or comp.get("title")
@@ -136,6 +156,7 @@ for code in selected:
                 "Kod": code,
                 "Fon Adı": title or "—",
                 "Son Fiyat": r["last_price"],
+                "Büyüklük": size_info.get("size"),
                 "Günlük": r["daily_return"],
                 "Haftalık": r["weekly_return"],
                 "YTD": ytd_fraction,
@@ -162,6 +183,7 @@ summary = pd.DataFrame(rows)
 st.subheader("Getiri Özeti")
 display_df = summary.copy()
 display_df["Son Fiyat"] = display_df["Son Fiyat"].map(lambda x: f"{x:.6f}" if pd.notna(x) else "—")
+display_df["Büyüklük"] = summary["Büyüklük"].map(fmt_size)
 for col in ["Günlük", "Haftalık", "YTD"]:
     display_df[col] = summary[col].map(pct)
 for col in ["1 Ay", "3 Ay", "6 Ay", "1 Yıl"]:
@@ -178,9 +200,12 @@ st.dataframe(
     use_container_width=True,
 )
 st.caption(
-    "YTD, 1 Ay, 3 Ay, 6 Ay ve 1 Yıl sütunları TEFAS'ın kendi resmi getiri "
-    "hesaplamasıdır. Günlük ve Haftalık, fiyat geçmişinden ayrıca hesaplanır."
+    "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir. YTD, 1 Ay, 3 Ay, "
+    "6 Ay ve 1 Yıl sütunları TEFAS'ın kendi resmi getiri hesaplamasıdır. "
+    "Günlük ve Haftalık, fiyat geçmişinden ayrıca hesaplanır."
 )
+if not sizes:
+    st.caption("Büyüklük verisi şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
 
 st.subheader("Fiyat Geçmişi (son 12 ay)")
 chosen_code = st.selectbox("Fon seçin", selected, index=0)

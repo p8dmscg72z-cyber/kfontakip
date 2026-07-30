@@ -18,6 +18,7 @@ import requests
 ROOT_URL = "https://www.tefas.gov.tr"
 PRICE_ENDPOINT = "/api/funds/fonFiyatBilgiGetir"
 LIST_ENDPOINT = "/api/funds/fonGetiriBazliBilgiGetir"
+SIZE_ENDPOINT = "/api/funds/fonBuyuklukBazliBilgiGetir"
 
 HEADERS = {
     "User-Agent": (
@@ -168,6 +169,69 @@ def fetch_comparison_data(codes, timeout: int = 20) -> dict:
                     "r_3y": row.get("getiri3y"),
                     "r_5y": row.get("getiri5y"),
                 }
+    return found
+
+
+def _fetch_size_rows(kind: str = "YAT", days_back: int = 30, timeout: int = 20) -> list:
+    """Raw rows from the size (AUM) comparison endpoint.
+
+    Confirmed live: sonPortfoyDegeri is the fund's current total portfolio
+    value (what TEFAS's UI labels "Fon Toplam Değer"), matching the
+    "Fon Bilgisi" panel on a fund's fon-detayli-analiz page. Also carries
+    sonPayAdedi (share count), portBuyuklukDegisim/payAdetDegisim (period
+    % change), and netGetiriOrani (period return %). basTarih/bitTarih only
+    bound the change-comparison window, not which funds are returned, so
+    days_back doesn't need to match anything else.
+    """
+    end = date.today()
+    start = end - timedelta(days=days_back)
+    payload = {
+        "dil": "TR",
+        "fonTipi": kind,
+        "kurucuKodu": None,
+        "sfonTurKod": None,
+        "fonTurAciklama": None,
+        "islem": 1,
+        "fonTurKod": None,
+        "fonGrubu": None,
+        "basTarih": start.strftime("%Y%m%d"),
+        "bitTarih": end.strftime("%Y%m%d"),
+        "calismaTipi": 1,
+        "getiriOrani": "1",
+    }
+    try:
+        resp = requests.post(
+            f"{ROOT_URL}{SIZE_ENDPOINT}", json=payload, headers=HEADERS, timeout=timeout
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    except (requests.RequestException, ValueError):
+        return []
+    return body.get("resultList") or []
+
+
+def fetch_fund_sizes(codes, timeout: int = 20) -> dict:
+    """Current fund size (AUM) snapshot, keyed by fund code.
+
+    Searches across all fund kinds (YAT/EMK/BYF) since a given code may not
+    be a "YAT" fund. Values in TL. Returns {} entries only for codes found.
+    """
+    wanted = {c.upper() for c in codes}
+    found = {}
+    for kind in FUND_KINDS:
+        if len(found) == len(wanted):
+            break
+        rows = _fetch_size_rows(kind, timeout=timeout)
+        for row in rows:
+            code = (row.get("fonKodu") or "").upper()
+            if code in wanted and code not in found:
+                size = row.get("sonPortfoyDegeri")
+                if size is not None:
+                    found[code] = {
+                        "size": float(size),
+                        "share_count": row.get("sonPayAdedi"),
+                        "size_change_pct": row.get("portBuyuklukDegisim"),
+                    }
     return found
 
 
