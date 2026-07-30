@@ -21,6 +21,7 @@ import streamlit as st
 from tefas_client import (
     TefasFetchError,
     compute_returns,
+    fetch_cash_flows,
     fetch_comparison_data,
     fetch_fund_prices,
     fetch_fund_sizes,
@@ -65,6 +66,11 @@ def load_sizes(codes: tuple) -> dict:
     return fetch_fund_sizes(codes)
 
 
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def load_cash_flows(codes: tuple) -> dict:
+    return fetch_cash_flows(codes)
+
+
 def load_all_prices(codes: list) -> dict:
     """Fetch all fund price histories concurrently (each result is itself
     cached individually by load_prices, so a warm cache still returns fast).
@@ -106,6 +112,18 @@ def fmt_size(x):
     return f"{x:,.0f} TL"
 
 
+def fmt_flow(x):
+    if x is None or pd.isna(x):
+        return "—"
+    sign = "+" if x >= 0 else "-"
+    ax = abs(x)
+    if ax >= 1e9:
+        return f"{sign}{ax / 1e9:,.2f} Milyar TL"
+    if ax >= 1e6:
+        return f"{sign}{ax / 1e6:,.2f} Milyon TL"
+    return f"{sign}{ax:,.0f} TL"
+
+
 def color_for(x):
     if x is None or pd.isna(x):
         return NEUTRAL_TEXT
@@ -123,15 +141,17 @@ with st.sidebar:
         load_prices.clear()
         load_comparison.clear()
         load_sizes.clear()
+        load_cash_flows.clear()
         st.rerun()
     st.markdown("---")
     st.caption(
         "**Not:** TEFAS 2026'da eski toplu API'sini (BindHistoryInfo / "
-        "BindHistoryAllocation) kapattı. Geçmiş para giriş/çıkışı ve varlık "
-        "dağılımı verileri artık herkese açık bir uç noktadan alınamıyor — bu "
-        "yüzden ilgili bölüm her fonun resmi TEFAS sayfasına yönlendirme "
-        "olarak gösteriliyor. Büyüklük, TEFAS'ın kendi güncel karşılaştırma "
-        "verisinden (Fon Toplam Değer) alınır."
+        "BindHistoryAllocation) kapattı. Geçmiş varlık dağılımı verisi artık "
+        "herkese açık bir uç noktadan alınamıyor — o bölüm her fonun resmi "
+        "TEFAS sayfasına yönlendirme olarak gösteriliyor. Büyüklük, TEFAS'ın "
+        "kendi güncel karşılaştırma verisinden (Fon Toplam Değer) alınır. "
+        "Para giriş/çıkışı ise TEFAS'ta doğrudan yayınlanmıyor; büyüklük "
+        "değişiminden fiyat getirisinin payı çıkarılarak **tahmin** edilir."
     )
 
 selected = FUND_CODES
@@ -237,12 +257,44 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
-st.subheader("Para Giriş / Çıkışı")
-st.info(
-    "TEFAS, fon bazında geçmiş para giriş/çıkışı (fon büyüklüğü değişimi) "
-    "verisini artık herkese açık bir API üzerinden yayınlamıyor. Güncel "
-    "rakamlar için ilgili fonun TEFAS sayfasını ziyaret edebilirsiniz."
+st.subheader("Para Giriş / Çıkışı (tahmini)")
+st.caption(
+    "TEFAS para giriş/çıkışını doğrudan yayınlamıyor. Aşağıdaki rakamlar, "
+    "fon büyüklüğündeki değişimden fiyat getirisinin payı çıkarılarak "
+    "hesaplanan bir **tahmindir** — resmi TEFAS verisi değildir."
 )
+
+with st.spinner("Para giriş/çıkışı hesaplanıyor..."):
+    flows = load_cash_flows(tuple(selected))
+
+flow_rows = []
+for code in selected:
+    f = flows.get(code, {})
+    flow_rows.append(
+        {
+            "Kod": code,
+            "Günlük": f.get("flow_daily"),
+            "Haftalık": f.get("flow_weekly"),
+            "Aylık": f.get("flow_monthly"),
+            "YTD": f.get("flow_ytd"),
+        }
+    )
+flow_df = pd.DataFrame(flow_rows)
+flow_display = flow_df.copy()
+flow_cols = ["Günlük", "Haftalık", "Aylık", "YTD"]
+for col in flow_cols:
+    flow_display[col] = flow_df[col].map(fmt_flow)
+
+st.dataframe(
+    flow_display.style.apply(
+        lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
+        axis=0,
+    ),
+    hide_index=True,
+    use_container_width=True,
+)
+if flow_df[flow_cols].isna().all(axis=None):
+    st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
 
 st.subheader("Varlık Dağılımı")
 st.info(

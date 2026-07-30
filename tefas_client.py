@@ -172,19 +172,23 @@ def fetch_comparison_data(codes, timeout: int = 20) -> dict:
     return found
 
 
-def _fetch_size_rows(kind: str = "YAT", days_back: int = 30, timeout: int = 20) -> list:
-    """Raw rows from the size (AUM) comparison endpoint.
+def _fetch_size_rows(
+    kind: str = "YAT",
+    start: date | None = None,
+    end: date | None = None,
+    timeout: int = 20,
+) -> list:
+    """Raw rows from the size (AUM) comparison endpoint for a [start, end] window.
 
-    Confirmed live: sonPortfoyDegeri is the fund's current total portfolio
-    value (what TEFAS's UI labels "Fon Toplam Değer"), matching the
-    "Fon Bilgisi" panel on a fund's fon-detayli-analiz page. Also carries
-    sonPayAdedi (share count), portBuyuklukDegisim/payAdetDegisim (period
-    % change), and netGetiriOrani (period return %). basTarih/bitTarih only
-    bound the change-comparison window, not which funds are returned, so
-    days_back doesn't need to match anything else.
+    Confirmed live: sonPortfoyDegeri is the fund's total portfolio value at
+    `end` (what TEFAS's UI labels "Fon Toplam Değer"), ilkPortfoyDegeri is
+    the value at `start`, netGetiriOrani is the fund's own return (%) over
+    that exact window, and sonPayAdedi/payAdetDegisim are share-count
+    figures. Defaults to a 30-day window ending today when start/end aren't
+    given (used for the current-size snapshot).
     """
-    end = date.today()
-    start = end - timedelta(days=days_back)
+    end = end or date.today()
+    start = start or (end - timedelta(days=30))
     payload = {
         "dil": "TR",
         "fonTipi": kind,
@@ -233,6 +237,76 @@ def fetch_fund_sizes(codes, timeout: int = 20) -> dict:
                         "size_change_pct": row.get("portBuyuklukDegisim"),
                     }
     return found
+
+
+CASH_FLOW_WINDOWS = {
+    "flow_daily": 1,
+    "flow_weekly": 7,
+    "flow_monthly": 30,
+}
+
+
+def fetch_cash_flows(codes, timeout: int = 20) -> dict:
+    """Estimated net subscription/redemption cash flow (TL) per fund.
+
+    TEFAS doesn't publish cash flow directly. This estimates it from the
+    size-comparison endpoint: the portfolio value change that ISN'T
+    explained by the fund's own price return over the same window is
+    attributed to net money in/out —
+        flow = son_portfoy_degeri - ilk_portfoy_degeri * (1 + netGetiriOrani/100)
+    A positive value means net inflows, negative means net outflows. This
+    is an approximation (real flows can happen unevenly through the window,
+    not just at the boundary), not an official TEFAS figure.
+
+    Returns {code: {"flow_daily":..., "flow_weekly":..., "flow_monthly":...,
+    "flow_ytd":...}}, with a period key present only if it could be computed.
+    """
+    wanted = {c.upper() for c in codes}
+    today = date.today()
+    result = {c: {} for c in wanted}
+
+    for period_key, days_back in CASH_FLOW_WINDOWS.items():
+        start = today - timedelta(days=days_back)
+        found = set()
+        for kind in FUND_KINDS:
+            if len(found) == len(wanted):
+                break
+            rows = _fetch_size_rows(kind, start=start, end=today, timeout=timeout)
+            for row in rows:
+                code = (row.get("fonKodu") or "").upper()
+                if code in wanted and code not in found:
+                    found.add(code)
+                    flow = _estimate_flow(row)
+                    if flow is not None:
+                        result[code][period_key] = flow
+
+    # YTD: from Dec 31 of last year (so a fund with no activity yet in
+    # January still gets a well-defined starting point) to today.
+    ytd_start = date(today.year - 1, 12, 31)
+    found = set()
+    for kind in FUND_KINDS:
+        if len(found) == len(wanted):
+            break
+        rows = _fetch_size_rows(kind, start=ytd_start, end=today, timeout=timeout)
+        for row in rows:
+            code = (row.get("fonKodu") or "").upper()
+            if code in wanted and code not in found:
+                found.add(code)
+                flow = _estimate_flow(row)
+                if flow is not None:
+                    result[code]["flow_ytd"] = flow
+
+    return result
+
+
+def _estimate_flow(row: dict):
+    ilk = row.get("ilkPortfoyDegeri")
+    son = row.get("sonPortfoyDegeri")
+    getiri = row.get("netGetiriOrani")
+    if ilk is None or son is None or getiri is None:
+        return None
+    expected = ilk * (1 + getiri / 100)
+    return son - expected
 
 
 class TefasFetchError(RuntimeError):
