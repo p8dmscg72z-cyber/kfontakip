@@ -57,11 +57,6 @@ st.markdown(
 )
 
 
-def table_height(n_rows: int) -> int:
-    """Enough px height to show every row without an inner scrollbar."""
-    return 38 + 35 * n_rows + 3
-
-
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def load_prices(code: str) -> pd.DataFrame:
     return fetch_fund_prices(code, months_back=12)
@@ -202,15 +197,9 @@ styled_summary = summary.style.format(
 ).apply(
     lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
     axis=0,
-)
-# Keep the underlying numbers (not the formatted text) so clicking a column
-# header sorts by value, not alphabetically.
-st.dataframe(
-    styled_summary,
-    hide_index=True,
-    use_container_width=True,
-    height=table_height(len(summary)),
-)
+).hide(axis="index")
+# Static table: fixed column widths, no drag-to-resize, no column menu.
+st.table(styled_summary)
 st.caption(
     "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir (TL). YTD sütunu "
     "TEFAS'ın kendi resmi getiri hesaplamasıdır. Günlük ve Haftalık, fiyat "
@@ -254,15 +243,9 @@ if st.session_state.show_flows:
     styled_flows = flow_df.style.format({col: fmt_flow for col in flow_cols}).apply(
         lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
         axis=0,
-    )
-    # Keep the underlying numbers (not the formatted text) so clicking a
-    # column header sorts by value, not alphabetically.
-    st.dataframe(
-        styled_flows,
-        hide_index=True,
-        use_container_width=True,
-        height=table_height(len(flow_df)),
-    )
+    ).hide(axis="index")
+    # Static table: fixed column widths, no drag-to-resize, no column menu.
+    st.table(styled_flows)
     if flow_df[flow_cols].isna().all(axis=None):
         st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
 
