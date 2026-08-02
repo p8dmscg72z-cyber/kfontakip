@@ -55,8 +55,10 @@ st.markdown(
         overflow-x: auto;
     }
     div[data-testid="stTable"] table td,
-    div[data-testid="stTable"] table th {
-        white-space: nowrap;
+    div[data-testid="stTable"] table th,
+    div[data-testid="stTable"] table td p,
+    div[data-testid="stTable"] table th p {
+        white-space: nowrap !important;
         font-size: 1.2rem !important;
         padding: 0.45rem 0.6rem !important;
     }
