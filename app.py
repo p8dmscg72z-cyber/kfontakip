@@ -63,41 +63,6 @@ st.markdown(
     div[data-testid="stTable"] table th {
         font-weight: 600 !important;
     }
-    /* Header-button rows (sortable_header_row): make them look like a
-       table header bar sitting directly on top of the table below,
-       instead of a separate row of pill buttons. */
-    div[class*="st-key-hdrrow-"] {
-        margin-bottom: -1px;
-    }
-    div[class*="st-key-hdrrow-"] div[data-testid="stHorizontalBlock"] {
-        gap: 0;
-    }
-    div[class*="st-key-hdrrow-"] .stButton button,
-    div[class*="st-key-hdrrow-"] .stMarkdown p {
-        font-size: 1.05rem !important;
-        font-weight: 700 !important;
-    }
-    div[class*="st-key-hdrrow-"] .stButton button {
-        background: rgba(128, 128, 128, 0.15);
-        border: none;
-        border-radius: 0;
-        box-shadow: none;
-        text-align: left;
-        justify-content: flex-start;
-        padding: 0.5rem 0.6rem;
-    }
-    div[class*="st-key-hdrrow-"] .stButton button:hover {
-        background: rgba(128, 128, 128, 0.28);
-        color: inherit;
-    }
-    div[class*="st-key-hdrrow-"] div[data-testid="column"] {
-        padding: 0 !important;
-    }
-    div[class*="st-key-hdrrow-"] div[data-testid="stMarkdownContainer"] {
-        background: rgba(128, 128, 128, 0.15);
-        padding: 0.5rem 0.6rem;
-        height: 100%;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -117,23 +82,22 @@ def sortable_header_row(col_defs: list, state_prefix: str) -> tuple:
     """
     col_key = f"{state_prefix}_sort_col"
     asc_key = f"{state_prefix}_sort_asc"
-    with st.container(key=f"hdrrow-{state_prefix}"):
-        cols = st.columns([w for _, w, _ in col_defs])
-        for (label, _, sortable), c in zip(col_defs, cols):
-            with c:
-                if not sortable:
-                    st.markdown(f"**{label}**")
-                    continue
-                current = st.session_state.get(col_key)
-                asc = st.session_state.get(asc_key, False)
-                arrow = (" ▲" if asc else " ▼") if current == label else " ⇅"
-                if st.button(f"{label}{arrow}", key=f"{state_prefix}_hdr_{label}", use_container_width=True):
-                    if current == label:
-                        st.session_state[asc_key] = not asc
-                    else:
-                        st.session_state[col_key] = label
-                        st.session_state[asc_key] = False
-                    st.rerun()
+    cols = st.columns([w for _, w, _ in col_defs])
+    for (label, _, sortable), c in zip(col_defs, cols):
+        with c:
+            if not sortable:
+                st.markdown(f"**{label}**")
+                continue
+            current = st.session_state.get(col_key)
+            asc = st.session_state.get(asc_key, False)
+            arrow = (" ▲" if asc else " ▼") if current == label else " ⇅"
+            if st.button(f"{label}{arrow}", key=f"{state_prefix}_hdr_{label}", use_container_width=True):
+                if current == label:
+                    st.session_state[asc_key] = not asc
+                else:
+                    st.session_state[col_key] = label
+                    st.session_state[asc_key] = False
+                st.rerun()
     return st.session_state.get(col_key), st.session_state.get(asc_key, False)
 
 
