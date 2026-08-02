@@ -51,10 +51,33 @@ st.markdown(
     h1 { font-size: 1.9rem !important; }
     h3 { font-size: 1.25rem !important; }
     p, li, .stMarkdown, .stCaption { font-size: 0.95rem !important; }
+    div[data-testid="stTable"] {
+        overflow-x: auto;
+    }
+    div[data-testid="stTable"] table td,
+    div[data-testid="stTable"] table th {
+        white-space: nowrap;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def sort_controls(label_key: str, columns: list) -> tuple:
+    """Column + direction selectors for a table. Returns (column_or_None, ascending)."""
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        sort_col = st.selectbox(
+            "Sırala", ["(Sıralama yok)"] + columns, key=f"sort_col_{label_key}"
+        )
+    with col2:
+        sort_dir = st.radio(
+            "Yön", ["Azalan", "Artan"], horizontal=True, key=f"sort_dir_{label_key}"
+        )
+    if sort_col == "(Sıralama yok)":
+        return None, True
+    return sort_col, sort_dir == "Artan"
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
@@ -185,6 +208,10 @@ if not rows:
 summary = pd.DataFrame(rows)
 
 st.subheader("Getiri Özeti")
+sort_col, sort_asc = sort_controls("summary", ["Büyüklük", "Günlük", "Haftalık", "YTD"])
+if sort_col:
+    summary = summary.sort_values(sort_col, ascending=sort_asc, na_position="last").reset_index(drop=True)
+
 colored_cols = ["Günlük", "Haftalık", "YTD"]
 styled_summary = summary.style.format(
     {
@@ -240,6 +267,9 @@ if st.session_state.show_flows:
         )
     flow_df = pd.DataFrame(flow_rows)
     flow_cols = ["Günlük", "Haftalık", "Aylık", "YTD"]
+    flow_sort_col, flow_sort_asc = sort_controls("flow", flow_cols)
+    if flow_sort_col:
+        flow_df = flow_df.sort_values(flow_sort_col, ascending=flow_sort_asc, na_position="last").reset_index(drop=True)
     styled_flows = flow_df.style.format({col: fmt_flow for col in flow_cols}).apply(
         lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
         axis=0,
