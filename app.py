@@ -57,6 +57,11 @@ st.markdown(
     div[data-testid="stTable"] table td,
     div[data-testid="stTable"] table th {
         white-space: nowrap;
+        font-size: 1.05rem !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+    div[data-testid="stTable"] table th {
+        font-weight: 600 !important;
     }
     </style>
     """,
@@ -64,20 +69,36 @@ st.markdown(
 )
 
 
-def sort_controls(label_key: str, columns: list) -> tuple:
-    """Column + direction selectors for a table. Returns (column_or_None, ascending)."""
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        sort_col = st.selectbox(
-            "Sırala", ["(Sıralama yok)"] + columns, key=f"sort_col_{label_key}"
-        )
-    with col2:
-        sort_dir = st.radio(
-            "Yön", ["Azalan", "Artan"], horizontal=True, key=f"sort_dir_{label_key}"
-        )
-    if sort_col == "(Sıralama yok)":
-        return None, True
-    return sort_col, sort_dir == "Artan"
+def sortable_header_row(col_defs: list, state_prefix: str) -> tuple:
+    """Render a row of header buttons above a table (col_defs: list of
+    (label, width_ratio, sortable)). Clicking a sortable header sets it as
+    the sort column, toggling asc/desc on repeat clicks — same idea as
+    clicking a column header in an interactive grid, but on a plain static
+    table. Returns (sort_column_or_None, ascending).
+
+    Note: st.columns widths are independent of the actual <table>'s
+    browser-rendered column widths (which vary with cell content), so
+    buttons won't line up pixel-perfectly with the columns below them.
+    """
+    cols = st.columns([w for _, w, _ in col_defs])
+    col_key = f"{state_prefix}_sort_col"
+    asc_key = f"{state_prefix}_sort_asc"
+    for (label, _, sortable), c in zip(col_defs, cols):
+        with c:
+            if not sortable:
+                st.markdown(f"**{label}**")
+                continue
+            current = st.session_state.get(col_key)
+            asc = st.session_state.get(asc_key, False)
+            arrow = (" ▲" if asc else " ▼") if current == label else " ⇅"
+            if st.button(f"{label}{arrow}", key=f"{state_prefix}_hdr_{label}", use_container_width=True):
+                if current == label:
+                    st.session_state[asc_key] = not asc
+                else:
+                    st.session_state[col_key] = label
+                    st.session_state[asc_key] = False
+                st.rerun()
+    return st.session_state.get(col_key), st.session_state.get(asc_key, False)
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
@@ -208,7 +229,16 @@ if not rows:
 summary = pd.DataFrame(rows)
 
 st.subheader("Getiri Özeti")
-sort_col, sort_asc = sort_controls("summary", ["Büyüklük", "Günlük", "Haftalık", "YTD"])
+summary_col_defs = [
+    ("Kod", 0.7, False),
+    ("Fon Adı", 3.2, False),
+    ("Son Fiyat", 1.0, False),
+    ("Büyüklük", 1.3, True),
+    ("Günlük", 0.9, True),
+    ("Haftalık", 0.9, True),
+    ("YTD", 0.9, True),
+]
+sort_col, sort_asc = sortable_header_row(summary_col_defs, "summary")
 if sort_col:
     summary = summary.sort_values(sort_col, ascending=sort_asc, na_position="last").reset_index(drop=True)
 
@@ -224,8 +254,9 @@ styled_summary = summary.style.format(
 ).apply(
     lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
     axis=0,
-).hide(axis="index")
+).hide(axis="index").hide(axis="columns")
 # Static table: fixed column widths, no drag-to-resize, no column menu.
+# Header is the button row above, not the table's own header.
 st.table(styled_summary)
 st.caption(
     "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir (TL). YTD sütunu "
@@ -267,14 +298,16 @@ if st.session_state.show_flows:
         )
     flow_df = pd.DataFrame(flow_rows)
     flow_cols = ["Günlük", "Haftalık", "Aylık", "YTD"]
-    flow_sort_col, flow_sort_asc = sort_controls("flow", flow_cols)
+    flow_col_defs = [("Kod", 0.7, False)] + [(c, 1.0, True) for c in flow_cols]
+    flow_sort_col, flow_sort_asc = sortable_header_row(flow_col_defs, "flow")
     if flow_sort_col:
         flow_df = flow_df.sort_values(flow_sort_col, ascending=flow_sort_asc, na_position="last").reset_index(drop=True)
     styled_flows = flow_df.style.format({col: fmt_flow for col in flow_cols}).apply(
         lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
         axis=0,
-    ).hide(axis="index")
+    ).hide(axis="index").hide(axis="columns")
     # Static table: fixed column widths, no drag-to-resize, no column menu.
+    # Header is the button row above, not the table's own header.
     st.table(styled_flows)
     if flow_df[flow_cols].isna().all(axis=None):
         st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
