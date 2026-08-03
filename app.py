@@ -182,8 +182,22 @@ def color_for(x):
     return POSITIVE if x >= 0 else NEGATIVE
 
 
+if "group_name" not in st.session_state:
+    st.session_state.group_name = next(iter(FUND_GROUPS))
+
 with st.sidebar:
-    group_name = st.selectbox("Fon Grubu", list(FUND_GROUPS.keys()))
+    st.caption("Fon Grubu")
+    for name in FUND_GROUPS:
+        is_active = st.session_state.group_name == name
+        if st.button(
+            name,
+            key=f"group_btn_{name}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            st.session_state.group_name = name
+            st.rerun()
+    group_name = st.session_state.group_name
     st.markdown("---")
     if st.button("Veriyi yenile (önbelleği temizle)"):
         load_prices.clear()
