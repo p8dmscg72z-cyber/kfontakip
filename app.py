@@ -54,11 +54,9 @@ st.markdown(
     h1 { font-size: 1.9rem !important; }
     h3 { font-size: 1.25rem !important; }
     p, li, .stMarkdown, .stCaption { font-size: 0.95rem !important; }
-    div[data-testid="stTable"] {
-        overflow-x: auto;
-    }
     div[data-testid="stTable"] table {
         border-collapse: collapse !important;
+        width: 100%;
     }
     div[data-testid="stTable"] table td,
     div[data-testid="stTable"] table th,
@@ -66,7 +64,9 @@ st.markdown(
     div[data-testid="stTable"] table th p {
         white-space: nowrap !important;
         font-size: 1.05rem !important;
-        padding: 0.3rem 0.65rem !important;
+        padding: 0.2rem 0.45rem !important;
+        text-align: center !important;
+        background-color: rgba(120, 120, 120, 0.08) !important;
     }
     div[data-testid="stTable"] table td,
     div[data-testid="stTable"] table th {
@@ -76,11 +76,16 @@ st.markdown(
         font-weight: 600 !important;
     }
     /* Fon Adı is the 2nd column in the returns table only — scoped via
-       the table's own container key so it doesn't affect other tables. */
+       the table's own container key so it doesn't affect other tables.
+       Truncated with an ellipsis instead of wrapping/overflowing, so no
+       horizontal scrollbar shows up under the table. */
     div[class*="st-key-summary_table"] table td:nth-child(2),
     div[class*="st-key-summary_table"] table td:nth-child(2) p {
         font-size: 0.85rem !important;
         font-weight: 400 !important;
+        max-width: 320px;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
     </style>
     """,
