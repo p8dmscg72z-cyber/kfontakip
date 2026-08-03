@@ -65,8 +65,6 @@ st.markdown(
         white-space: nowrap !important;
         font-size: 1.05rem !important;
         padding: 0.2rem 0.45rem !important;
-        text-align: center !important;
-        background-color: rgba(120, 120, 120, 0.08) !important;
     }
     div[data-testid="stTable"] table td,
     div[data-testid="stTable"] table th {
