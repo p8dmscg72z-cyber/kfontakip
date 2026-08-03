@@ -240,7 +240,10 @@ def fetch_fund_sizes(codes, timeout: int = 20) -> dict:
 
 
 CASH_FLOW_WINDOWS = {
-    "flow_daily": 1,
+    # "daily" uses a few calendar days back (not 1) so a weekend/holiday
+    # gap, or the current day's NAV not being published yet, still leaves
+    # a valid prior trading day inside the window instead of an empty one.
+    "flow_daily": 4,
     "flow_weekly": 7,
     "flow_monthly": 30,
 }

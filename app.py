@@ -54,13 +54,20 @@ st.markdown(
     div[data-testid="stTable"] {
         overflow-x: auto;
     }
+    div[data-testid="stTable"] table {
+        border-collapse: collapse !important;
+    }
     div[data-testid="stTable"] table td,
     div[data-testid="stTable"] table th,
     div[data-testid="stTable"] table td p,
     div[data-testid="stTable"] table th p {
         white-space: nowrap !important;
-        font-size: 1.2rem !important;
-        padding: 0.45rem 0.6rem !important;
+        font-size: 1.05rem !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+    div[data-testid="stTable"] table td,
+    div[data-testid="stTable"] table th {
+        border: 1.5px solid rgba(128, 128, 128, 0.55) !important;
     }
     div[data-testid="stTable"] table th {
         font-weight: 600 !important;
@@ -141,10 +148,10 @@ def load_all_prices(codes: list) -> dict:
 
 
 def pct(x):
-    """Format a fraction (0.05 -> +5.00%)."""
+    """Format a fraction (0.05 -> +5.0000%)."""
     if x is None or pd.isna(x):
         return "—"
-    return f"{x * 100:+.2f}%"
+    return f"{x * 100:+.4f}%"
 
 
 def fmt_size(x):
@@ -245,6 +252,7 @@ if sort_col:
     summary = summary.sort_values(sort_col, ascending=sort_asc, na_position="last").reset_index(drop=True)
 
 colored_cols = ["Günlük", "Haftalık", "YTD"]
+numeric_cols = ["Son Fiyat", "Büyüklük", "Günlük", "Haftalık", "YTD"]
 styled_summary = summary.style.format(
     {
         "Son Fiyat": lambda x: f"{x:.6f}" if pd.notna(x) else "—",
@@ -256,6 +264,8 @@ styled_summary = summary.style.format(
 ).apply(
     lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
     axis=0,
+).set_properties(
+    subset=numeric_cols, **{"font-weight": "bold"}
 ).hide(axis="index").hide(axis="columns")
 # Static table: fixed column widths, no drag-to-resize, no column menu.
 # Header is the button row above, not the table's own header.
@@ -307,6 +317,8 @@ if st.session_state.show_flows:
     styled_flows = flow_df.style.format({col: fmt_flow for col in flow_cols}).apply(
         lambda s: [f"color: {color_for(v)}" for v in flow_df[s.name]] if s.name in flow_cols else [""] * len(s),
         axis=0,
+    ).set_properties(
+        subset=flow_cols, **{"font-weight": "bold"}
     ).hide(axis="index").hide(axis="columns")
     # Static table: fixed column widths, no drag-to-resize, no column menu.
     # Header is the button row above, not the table's own header.
