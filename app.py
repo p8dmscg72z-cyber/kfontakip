@@ -43,10 +43,10 @@ st.markdown(
     """
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
     html, body, [class*="css"] {
-        font-family: "Noto Sans", "notoSans Fallback", Arial, sans-serif;
+        font-family: "Inter", "Noto Sans", Arial, sans-serif;
     }
     h1 { font-size: 1.9rem !important; }
     h3 { font-size: 1.25rem !important; }
@@ -62,8 +62,8 @@ st.markdown(
     div[data-testid="stTable"] table td p,
     div[data-testid="stTable"] table th p {
         white-space: nowrap !important;
-        font-size: 1.15rem !important;
-        padding: 0.55rem 0.75rem !important;
+        font-size: 1.05rem !important;
+        padding: 0.3rem 0.65rem !important;
     }
     div[data-testid="stTable"] table td,
     div[data-testid="stTable"] table th {
@@ -71,6 +71,13 @@ st.markdown(
     }
     div[data-testid="stTable"] table th {
         font-weight: 600 !important;
+    }
+    /* Fon Adı is the 2nd column in the returns table only — scoped via
+       the table's own container key so it doesn't affect other tables. */
+    div[class*="st-key-summary_table"] table td:nth-child(2),
+    div[class*="st-key-summary_table"] table td:nth-child(2) p {
+        font-size: 0.85rem !important;
+        font-weight: 400 !important;
     }
     </style>
     """,
@@ -268,8 +275,11 @@ styled_summary = summary.style.format(
     subset=numeric_cols, **{"font-weight": "bold"}
 ).hide(axis="index").hide(axis="columns")
 # Static table: fixed column widths, no drag-to-resize, no column menu.
-# Header is the button row above, not the table's own header.
-st.table(styled_summary)
+# Header is the button row above, not the table's own header. Keyed
+# container so the Fon Adı font-size override (CSS above) only hits this
+# table's 2nd column, not other tables.
+with st.container(key="summary_table"):
+    st.table(styled_summary)
 st.caption(
     "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir (TL). YTD sütunu "
     "TEFAS'ın kendi resmi getiri hesaplamasıdır. Günlük ve Haftalık, fiyat "
