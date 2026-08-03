@@ -28,10 +28,13 @@ from tefas_client import (
 
 CACHE_TTL_SECONDS = 1 * 3600
 
-FUND_CODES = [
-    "PKZ", "TLY", "DFI", "LTL", "TP2", "PRY", "PHE",
-    "MT2", "PBR", "PUK", "PCS", "VPS", "IIE",
-]
+FUND_GROUPS = {
+    "Exotics": [
+        "PKZ", "TLY", "DFI", "LTL", "TP2", "PRY", "PHE",
+        "MT2", "PBR", "PUK", "PCS", "VPS", "IIE",
+    ],
+    "Altın Emeklilik": ["AMZ", "CFA", "GRA", "BNA", "NHA", "BGL", "AEA"],
+}
 
 POSITIVE = "#2CA858"
 NEGATIVE = "#D6455D"
@@ -179,13 +182,9 @@ def color_for(x):
     return POSITIVE if x >= 0 else NEGATIVE
 
 
-st.title("TEFAS Fon Takip Paneli")
-st.caption(
-    "Günlük ve haftalık getiriler fiyat geçmişinden hesaplanır; YTD "
-    "TEFAS'ın kendi resmi karşılaştırma verisidir."
-)
-
 with st.sidebar:
+    group_name = st.selectbox("Fon Grubu", list(FUND_GROUPS.keys()))
+    st.markdown("---")
     if st.button("Veriyi yenile (önbelleği temizle)"):
         load_prices.clear()
         load_comparison.clear()
@@ -203,7 +202,15 @@ with st.sidebar:
         "değişiminden fiyat getirisinin payı çıkarılarak **tahmin** edilir."
     )
 
-selected = FUND_CODES
+selected = FUND_GROUPS[group_name]
+
+st.title("TEFAS Fon Takip Paneli")
+st.caption(
+    f"**{group_name}** grubu · Günlük ve haftalık getiriler fiyat "
+    "geçmişinden hesaplanır; YTD TEFAS'ın kendi resmi karşılaştırma "
+    "verisidir."
+)
+
 comparison = load_comparison(tuple(selected))
 sizes = load_sizes(tuple(selected))
 
