@@ -26,7 +26,7 @@ from tefas_client import (
     fund_detail_url,
 )
 
-CACHE_TTL_SECONDS = 6 * 3600  # TEFAS prices update a few times a day, not every minute
+CACHE_TTL_SECONDS = 1 * 3600
 
 FUND_CODES = [
     "PKZ", "TLY", "DFI", "LTL", "TP2", "PRY", "PHE",
@@ -62,8 +62,8 @@ st.markdown(
     div[data-testid="stTable"] table td p,
     div[data-testid="stTable"] table th p {
         white-space: nowrap !important;
-        font-size: 1.05rem !important;
-        padding: 0.4rem 0.6rem !important;
+        font-size: 1.15rem !important;
+        padding: 0.55rem 0.75rem !important;
     }
     div[data-testid="stTable"] table td,
     div[data-testid="stTable"] table th {
