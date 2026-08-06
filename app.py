@@ -286,6 +286,10 @@ colored_cols = ["Günlük", "Haftalık", "YTD"]
 numeric_cols = ["Son Fiyat", "Büyüklük", "Günlük", "Haftalık", "YTD"]
 styled_summary = summary.style.format(
     {
+        "Kod": lambda code: (
+            f'<a href="{fund_detail_url(code)}" target="_blank" '
+            f'rel="noopener noreferrer" style="color: inherit;">{code}</a>'
+        ),
         "Son Fiyat": lambda x: f"{x:.6f}" if pd.notna(x) else "—",
         "Büyüklük": fmt_size,
         "Günlük": pct,
@@ -301,13 +305,17 @@ styled_summary = summary.style.format(
 # Static table: fixed column widths, no drag-to-resize, no column menu.
 # Header is the button row above, not the table's own header. Keyed
 # container so the Fon Adı font-size override (CSS above) only hits this
-# table's 2nd column, not other tables.
+# table's 2nd column, not other tables. Kod cells are rendered as raw <a>
+# links (Styler.format leaves them unescaped) pointing at each fund's
+# TEFAS page, opened in a new tab.
 with st.container(key="summary_table"):
     st.table(styled_summary)
 st.caption(
-    "Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir (TL). YTD sütunu "
-    "TEFAS'ın kendi resmi getiri hesaplamasıdır. Günlük ve Haftalık, fiyat "
-    "geçmişinden ayrıca hesaplanır."
+    "Kod sütunundaki fon koduna tıklayarak ilgili fonun TEFAS sayfasını "
+    "yeni sekmede açabilirsiniz. Büyüklük, TEFAS'ın güncel Fon Toplam "
+    "Değer verisidir (TL). YTD sütunu TEFAS'ın kendi resmi getiri "
+    "hesaplamasıdır. Günlük ve Haftalık, fiyat geçmişinden ayrıca "
+    "hesaplanır."
 )
 if not sizes:
     st.caption("Büyüklük verisi şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
@@ -359,17 +367,5 @@ if st.session_state.show_flows:
     st.table(styled_flows)
     if flow_df[flow_cols].isna().all(axis=None):
         st.caption("Para giriş/çıkışı şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
-
-st.subheader("Varlık Dağılımı")
-st.info(
-    "TEFAS, fon bazında varlık dağılımı (hisse, tahvil, repo vb. oranları) "
-    "verisini artık herkese açık bir API üzerinden yayınlamıyor. Güncel "
-    "dağılım için ilgili fonun TEFAS sayfasını ziyaret edebilirsiniz."
-)
-
-link_cols = st.columns(4)
-for i, code in enumerate(selected):
-    with link_cols[i % 4]:
-        st.markdown(f"**{code}** → [TEFAS sayfası]({fund_detail_url(code)})")
 
 st.caption(f"Son güncelleme kontrolü: {date.today().isoformat()} · Kaynak: tefas.gov.tr")
