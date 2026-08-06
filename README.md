@@ -19,14 +19,16 @@ kullanarak günlük fiyat geçmişinden getiri hesaplar.
 
 TEFAS, eski toplu veri API'sini (`BindHistoryInfo` / `BindHistoryAllocation`)
 2026 içinde kapattı. Yeni API yalnızca fon bazında günlük fiyat verisi
-sunuyor; geçmiş **fon büyüklüğü / para giriş-çıkışı** ve **varlık dağılımı**
-verileri artık herkese açık bir uç noktadan alınamıyor. Bu yüzden uygulamada:
+sunuyor; geçmiş **varlık dağılımı** verisi artık herkese açık bir uç
+noktadan alınamıyor, bu yüzden panoda bu bölüm yer almıyor. Bunun yerine:
 
-- **Getiriler** (günlük / haftalık / YTD): tam olarak hesaplanır ve gösterilir.
-- **Para giriş/çıkışı** ve **Varlık dağılımı**: TEFAS API'sinde artık mevcut
-  olmadığından, ilgili bölümlerde bir bilgi notu ve her fonun resmi TEFAS
-  sayfasına doğrudan bağlantı gösterilir.
+- **Getiriler** (günlük / haftalık / YTD) ve **büyüklük**: tam olarak
+  hesaplanır ve gösterilir. Getiri Özeti tablosundaki her satır, o fonun
+  resmi TEFAS sayfasına bağlantıdır (satıra tıklayınca açılır).
+- **Para giriş/çıkışı**: TEFAS'ta doğrudan yayınlanmadığından, büyüklük
+  değişiminden fiyat getirisinin payı çıkarılarak bir **tahmin** olarak
+  hesaplanır.
 
-Bu iki veri için ileride resmi ya da alternatif bir kaynak bulunursa,
-`tefas_client.py` içine yeni bir fetch fonksiyonu eklenip `app.py`'daki ilgili
-bölümler güncellenebilir.
+Varlık dağılımı için ileride resmi ya da alternatif bir kaynak bulunursa,
+`tefas_client.py` içine yeni bir fetch fonksiyonu eklenip `app.py`'ye
+karşılık gelen bölüm eklenebilir.

@@ -2,14 +2,14 @@
 
 Streamlit dashboard for a fixed watchlist of TEFAS funds: daily/weekly/YTD
 returns and current fund size (Büyüklük), plus an estimated net cash-flow
-table computed on demand. TEFAS retired its old bulk API in 2026; the
-current API no longer publishes historical asset-allocation data at all, so
-that section shows a notice with a link to each fund's TEFAS page instead
-of fabricated numbers.
+table computed on demand. Each row of the returns table links to the
+fund's own TEFAS page. TEFAS retired its old bulk API in 2026, which also
+means it no longer publishes historical asset-allocation data.
 """
 
 from __future__ import annotations
 
+import html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
@@ -73,37 +73,41 @@ st.markdown(
     div[data-testid="stTable"] table th {
         font-weight: 600 !important;
     }
-    /* Fon Adı is the 2nd column in the returns table only — scoped via
-       the table's own container key so it doesn't affect other tables.
-       Truncated with an ellipsis instead of wrapping/overflowing, so no
-       horizontal scrollbar shows up under the table. */
-    div[class*="st-key-summary_table"] table td:nth-child(2),
-    div[class*="st-key-summary_table"] table td:nth-child(2) p {
+    /* Getiri Özeti table is hand-built HTML (st.markdown, not st.table)
+       so each row can be a real clickable link to the fund's TEFAS page —
+       st.table renders each cell through its own markdown component,
+       which HTML-escapes cell content, so <a> tags placed in a DataFrame
+       cell (even via a Styler) show up as literal text, not real links. */
+    table.funds-summary-table {
+        border-collapse: collapse !important;
+        width: 100%;
+    }
+    table.funds-summary-table td {
+        border: 1.5px solid rgba(128, 128, 128, 0.55) !important;
+        padding: 0 !important;
+        white-space: nowrap !important;
+        font-size: 1.05rem !important;
+    }
+    table.funds-summary-table td > a {
+        display: block;
+        color: inherit;
+        text-decoration: none;
+        padding: 0.2rem 0.45rem;
+        white-space: nowrap;
+    }
+    table.funds-summary-table tbody tr:hover td {
+        background-color: rgba(128, 128, 128, 0.15);
+    }
+    /* Fon Adı is the 2nd column — truncated with an ellipsis instead of
+       wrapping/overflowing, so no horizontal scrollbar shows up. */
+    table.funds-summary-table td:nth-child(2) {
         font-size: 0.85rem !important;
         font-weight: 400 !important;
+    }
+    table.funds-summary-table td:nth-child(2) > a {
         max-width: 320px;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
-    }
-    /* Each returns-table cell is wrapped in a full-cell <a> (see
-       _row_link in app.py) so the whole row is clickable. Move the
-       cell padding onto the link itself so the clickable area covers
-       the entire cell, not just the text, and add a hover cue. */
-    div[class*="st-key-summary_table"] table td {
-        padding: 0 !important;
-    }
-    div[class*="st-key-summary_table"] table td > a {
-        display: block !important;
-        padding: 0.2rem 0.45rem !important;
-    }
-    div[class*="st-key-summary_table"] table td:nth-child(2) > a {
-        max-width: 320px;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        white-space: nowrap !important;
-    }
-    div[class*="st-key-summary_table"] table tbody tr:hover td {
-        background-color: rgba(128, 128, 128, 0.15) !important;
     }
     </style>
     """,
@@ -303,61 +307,56 @@ if sort_col:
     summary = summary.sort_values(sort_col, ascending=sort_asc, na_position="last").reset_index(drop=True)
 
 colored_cols = ["Günlük", "Haftalık", "YTD"]
-numeric_cols = ["Son Fiyat", "Büyüklük", "Günlük", "Haftalık", "YTD"]
 
 
-def _row_link(text: str, url: str) -> str:
-    """Wrap cell text in a full-cell <a> so the whole row is clickable,
-    while looking like plain text (no underline/blue, cursor still
-    becomes a pointer on hover since it's a real anchor)."""
-    return (
-        f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-        f'style="display:block; color:inherit; text-decoration:none;">{text}</a>'
-    )
+def build_summary_table_html(df: pd.DataFrame) -> str:
+    """Hand-built HTML table rendered via st.markdown(unsafe_allow_html=True)
+    instead of st.table. st.table routes each cell through Streamlit's own
+    markdown component, which HTML-escapes cell content — so an <a> tag
+    placed in a DataFrame cell (even via a Styler) shows up as literal
+    escaped text, not a real link. A raw HTML string via st.markdown does
+    not get escaped, so this is the only way to make each row a real link
+    to the fund's TEFAS page.
+    """
+    row_tags = []
+    for _, row in df.iterrows():
+        url = fund_detail_url(row["Kod"])
+        cells = [
+            html.escape(str(row["Kod"])),
+            html.escape(str(row["Fon Adı"])),
+            f"{row['Son Fiyat']:.6f}" if pd.notna(row["Son Fiyat"]) else "—",
+            fmt_size(row["Büyüklük"]),
+            pct(row["Günlük"]),
+            pct(row["Haftalık"]),
+            pct(row["YTD"]),
+        ]
+        colors = [None, None, None, None, color_for(row["Günlük"]), color_for(row["Haftalık"]), color_for(row["YTD"])]
+        bold = [False, False, True, True, True, True, True]
+        tds = []
+        for val, color, is_bold in zip(cells, colors, bold):
+            style_parts = []
+            if color:
+                style_parts.append(f"color:{color}")
+            if is_bold:
+                style_parts.append("font-weight:700")
+            style_attr = f' style="{";".join(style_parts)}"' if style_parts else ""
+            tds.append(
+                f'<td><a href="{html.escape(url)}" target="_blank" '
+                f'rel="noopener noreferrer"{style_attr}>{val}</a></td>'
+            )
+        row_tags.append(f"<tr>{''.join(tds)}</tr>")
+    return f'<table class="funds-summary-table"><tbody>{"".join(row_tags)}</tbody></table>'
 
 
-linked_rows = []
-for _, row in summary.iterrows():
-    url = fund_detail_url(row["Kod"])
-    linked_rows.append(
-        {
-            "Kod": _row_link(row["Kod"], url),
-            "Fon Adı": _row_link(row["Fon Adı"], url),
-            "Son Fiyat": _row_link(
-                f"{row['Son Fiyat']:.6f}" if pd.notna(row["Son Fiyat"]) else "—", url
-            ),
-            "Büyüklük": _row_link(fmt_size(row["Büyüklük"]), url),
-            "Günlük": _row_link(pct(row["Günlük"]), url),
-            "Haftalık": _row_link(pct(row["Haftalık"]), url),
-            "YTD": _row_link(pct(row["YTD"]), url),
-        }
-    )
-linked_df = pd.DataFrame(linked_rows)
-
-# Cell text is pre-formatted above (not via Styler.format) because the link
-# wrapper needs the whole row's Kod to build each cell's href; Styler.format
-# only sees one column at a time. Coloring still reads the original numeric
-# `summary` values, so it stays correct regardless of the HTML wrapper.
-styled_summary = linked_df.style.apply(
-    lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
-    axis=0,
-).set_properties(
-    subset=numeric_cols, **{"font-weight": "bold"}
-).hide(axis="index").hide(axis="columns")
 # Static table: fixed column widths, no drag-to-resize, no column menu.
-# Header is the button row above, not the table's own header. Keyed
-# container so the Fon Adı font-size override (CSS above) only hits this
-# table's 2nd column, not other tables. Every cell is a full-size <a> link
-# (see _row_link) so clicking anywhere on a row opens that fund's TEFAS
-# page in a new tab, while still displaying plain fund-code text.
-with st.container(key="summary_table"):
-    st.table(styled_summary)
+# Header is the button row above, not the table's own header. Each row
+# links to the fund's TEFAS page (click anywhere in the row to open it).
+st.markdown(build_summary_table_html(summary), unsafe_allow_html=True)
 st.caption(
-    "Kod sütunundaki fon koduna tıklayarak ilgili fonun TEFAS sayfasını "
-    "yeni sekmede açabilirsiniz. Büyüklük, TEFAS'ın güncel Fon Toplam "
-    "Değer verisidir (TL). YTD sütunu TEFAS'ın kendi resmi getiri "
-    "hesaplamasıdır. Günlük ve Haftalık, fiyat geçmişinden ayrıca "
-    "hesaplanır."
+    "Bir satıra tıklayarak ilgili fonun TEFAS sayfasını yeni sekmede "
+    "açabilirsiniz. Büyüklük, TEFAS'ın güncel Fon Toplam Değer verisidir "
+    "(TL). YTD sütunu TEFAS'ın kendi resmi getiri hesaplamasıdır. Günlük "
+    "ve Haftalık, fiyat geçmişinden ayrıca hesaplanır."
 )
 if not sizes:
     st.caption("Büyüklük verisi şu an TEFAS'tan okunamadı; tabloda '—' olarak görünür.")
