@@ -85,6 +85,26 @@ st.markdown(
         overflow: hidden !important;
         text-overflow: ellipsis !important;
     }
+    /* Each returns-table cell is wrapped in a full-cell <a> (see
+       _row_link in app.py) so the whole row is clickable. Move the
+       cell padding onto the link itself so the clickable area covers
+       the entire cell, not just the text, and add a hover cue. */
+    div[class*="st-key-summary_table"] table td {
+        padding: 0 !important;
+    }
+    div[class*="st-key-summary_table"] table td > a {
+        display: block !important;
+        padding: 0.2rem 0.45rem !important;
+    }
+    div[class*="st-key-summary_table"] table td:nth-child(2) > a {
+        max-width: 320px;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    div[class*="st-key-summary_table"] table tbody tr:hover td {
+        background-color: rgba(128, 128, 128, 0.15) !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -284,19 +304,41 @@ if sort_col:
 
 colored_cols = ["Günlük", "Haftalık", "YTD"]
 numeric_cols = ["Son Fiyat", "Büyüklük", "Günlük", "Haftalık", "YTD"]
-styled_summary = summary.style.format(
-    {
-        "Kod": lambda code: (
-            f'<a href="{fund_detail_url(code)}" target="_blank" '
-            f'rel="noopener noreferrer" style="color: inherit;">{code}</a>'
-        ),
-        "Son Fiyat": lambda x: f"{x:.6f}" if pd.notna(x) else "—",
-        "Büyüklük": fmt_size,
-        "Günlük": pct,
-        "Haftalık": pct,
-        "YTD": pct,
-    }
-).apply(
+
+
+def _row_link(text: str, url: str) -> str:
+    """Wrap cell text in a full-cell <a> so the whole row is clickable,
+    while looking like plain text (no underline/blue, cursor still
+    becomes a pointer on hover since it's a real anchor)."""
+    return (
+        f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+        f'style="display:block; color:inherit; text-decoration:none;">{text}</a>'
+    )
+
+
+linked_rows = []
+for _, row in summary.iterrows():
+    url = fund_detail_url(row["Kod"])
+    linked_rows.append(
+        {
+            "Kod": _row_link(row["Kod"], url),
+            "Fon Adı": _row_link(row["Fon Adı"], url),
+            "Son Fiyat": _row_link(
+                f"{row['Son Fiyat']:.6f}" if pd.notna(row["Son Fiyat"]) else "—", url
+            ),
+            "Büyüklük": _row_link(fmt_size(row["Büyüklük"]), url),
+            "Günlük": _row_link(pct(row["Günlük"]), url),
+            "Haftalık": _row_link(pct(row["Haftalık"]), url),
+            "YTD": _row_link(pct(row["YTD"]), url),
+        }
+    )
+linked_df = pd.DataFrame(linked_rows)
+
+# Cell text is pre-formatted above (not via Styler.format) because the link
+# wrapper needs the whole row's Kod to build each cell's href; Styler.format
+# only sees one column at a time. Coloring still reads the original numeric
+# `summary` values, so it stays correct regardless of the HTML wrapper.
+styled_summary = linked_df.style.apply(
     lambda s: [f"color: {color_for(v)}" for v in summary[s.name]] if s.name in colored_cols else [""] * len(s),
     axis=0,
 ).set_properties(
@@ -305,9 +347,9 @@ styled_summary = summary.style.format(
 # Static table: fixed column widths, no drag-to-resize, no column menu.
 # Header is the button row above, not the table's own header. Keyed
 # container so the Fon Adı font-size override (CSS above) only hits this
-# table's 2nd column, not other tables. Kod cells are rendered as raw <a>
-# links (Styler.format leaves them unescaped) pointing at each fund's
-# TEFAS page, opened in a new tab.
+# table's 2nd column, not other tables. Every cell is a full-size <a> link
+# (see _row_link) so clicking anywhere on a row opens that fund's TEFAS
+# page in a new tab, while still displaying plain fund-code text.
 with st.container(key="summary_table"):
     st.table(styled_summary)
 st.caption(
