@@ -239,17 +239,24 @@ def fetch_fund_sizes(codes, timeout: int = 20) -> dict:
     return found
 
 
-CASH_FLOW_WINDOWS = {
-    # "daily" uses a few calendar days back (not 1) so a weekend/holiday
-    # gap, or the current day's NAV not being published yet, still leaves
-    # a valid prior trading day inside the window instead of an empty one.
-    "flow_daily": 4,
+# Calendar-day targets used only to pick a *starting point* to search
+# backwards from within the known trading calendar (see _nearest_at_or_before).
+# The actual boundary dates used in requests are always real trading days
+# taken from `trading_dates`, never these raw day-counts.
+CASH_FLOW_CALENDAR_DAYS = {
     "flow_weekly": 7,
     "flow_monthly": 30,
 }
 
 
-def fetch_cash_flows(codes, timeout: int = 20) -> dict:
+def _nearest_at_or_before(trading_dates: list[date], target: date) -> date | None:
+    """Latest date in `trading_dates` (sorted ascending) that is <= target.
+    Falls back to the earliest known date if target predates all of them."""
+    candidates = [d for d in trading_dates if d <= target]
+    return candidates[-1] if candidates else (trading_dates[0] if trading_dates else None)
+
+
+def fetch_cash_flows(codes, trading_dates: list[date], timeout: int = 20) -> dict:
     """Estimated net subscription/redemption cash flow (TL) per fund.
 
     TEFAS doesn't publish cash flow directly. This estimates it from the
@@ -261,20 +268,40 @@ def fetch_cash_flows(codes, timeout: int = 20) -> dict:
     is an approximation (real flows can happen unevenly through the window,
     not just at the boundary), not an official TEFAS figure.
 
+    `trading_dates` must be the sorted, ascending list of real trading days
+    for these funds (e.g. taken from their own price histories) — it is
+    what pins each window to an exact number of trading days instead of
+    calendar days. This matters most for "daily": requesting the size
+    endpoint with a start date a few calendar days back (to dodge
+    weekends/holidays landing on an empty window) does NOT get snapped to
+    "yesterday" by TEFAS — it returns the portfolio value literally at that
+    earlier date, so a naive fixed day-count silently turns "daily" flow
+    into a multi-day cumulative flow (e.g. 3-4x too large for a fund with
+    sustained net inflows). Using the actual previous trading day instead
+    guarantees an exact one-trading-day window every time.
+
     Returns {code: {"flow_daily":..., "flow_weekly":..., "flow_monthly":...,
     "flow_ytd":...}}, with a period key present only if it could be computed.
     """
     wanted = {c.upper() for c in codes}
-    today = date.today()
     result = {c: {} for c in wanted}
 
-    for period_key, days_back in CASH_FLOW_WINDOWS.items():
-        start = today - timedelta(days=days_back)
+    if not trading_dates:
+        return result
+    trading_dates = sorted(trading_dates)
+    last_date = trading_dates[-1]
+    prev_date = trading_dates[-2] if len(trading_dates) >= 2 else last_date
+
+    period_starts = {"flow_daily": prev_date}
+    for period_key, days_back in CASH_FLOW_CALENDAR_DAYS.items():
+        period_starts[period_key] = _nearest_at_or_before(trading_dates, last_date - timedelta(days=days_back))
+
+    for period_key, start in period_starts.items():
         found = set()
         for kind in FUND_KINDS:
             if len(found) == len(wanted):
                 break
-            rows = _fetch_size_rows(kind, start=start, end=today, timeout=timeout)
+            rows = _fetch_size_rows(kind, start=start, end=last_date, timeout=timeout)
             for row in rows:
                 code = (row.get("fonKodu") or "").upper()
                 if code in wanted and code not in found:
@@ -284,13 +311,14 @@ def fetch_cash_flows(codes, timeout: int = 20) -> dict:
                         result[code][period_key] = flow
 
     # YTD: from Dec 31 of last year (so a fund with no activity yet in
-    # January still gets a well-defined starting point) to today.
-    ytd_start = date(today.year - 1, 12, 31)
+    # January still gets a well-defined starting point) to the last known
+    # trading day.
+    ytd_start = date(last_date.year - 1, 12, 31)
     found = set()
     for kind in FUND_KINDS:
         if len(found) == len(wanted):
             break
-        rows = _fetch_size_rows(kind, start=ytd_start, end=today, timeout=timeout)
+        rows = _fetch_size_rows(kind, start=ytd_start, end=last_date, timeout=timeout)
         for row in rows:
             code = (row.get("fonKodu") or "").upper()
             if code in wanted and code not in found:

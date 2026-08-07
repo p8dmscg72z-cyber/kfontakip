@@ -163,8 +163,8 @@ def load_sizes(codes: tuple) -> dict:
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
-def load_cash_flows(codes: tuple) -> dict:
-    return fetch_cash_flows(codes)
+def load_cash_flows(codes: tuple, trading_dates: tuple) -> dict:
+    return fetch_cash_flows(codes, list(trading_dates))
 
 
 def load_all_prices(codes: list) -> dict:
@@ -377,7 +377,10 @@ if st.button("Para giriş/çıkışını hesapla"):
 
 if st.session_state.show_flows:
     with st.spinner("Para giriş/çıkışı hesaplanıyor..."):
-        flows = load_cash_flows(tuple(selected))
+        trading_dates = sorted(
+            {d for df in histories.values() if df is not None for d in df["date"]}
+        )
+        flows = load_cash_flows(tuple(selected), tuple(trading_dates))
 
     flow_rows = []
     for code in selected:
